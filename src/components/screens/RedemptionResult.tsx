@@ -77,7 +77,7 @@ export function RedemptionResult() {
               transition={{ delay: 0.6 }}
               className="space-y-3"
             >
-              {drawnTeams.map((team, i) => {
+              {drawnTeams.map((team) => {
                 const tIdx = teams.indexOf(team);
                 const tc = TEAM_COLORS[tIdx % TEAM_COLORS.length];
                 const piece = GAME_PIECES.find((p) => p.id === team.pieceId);

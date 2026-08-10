@@ -5,7 +5,7 @@ import { useTimer } from '../../hooks/useTimer';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSound } from '../../hooks/useSound';
 import { TimerRing } from '../ui/TimerRing';
-import { TEAM_COLORS, CATEGORY_META, BASE_CATEGORIES, getActiveBaseCategories, getCategoryLabel } from '../../types';
+import { TEAM_COLORS, CATEGORY_META, getActiveBaseCategories, getCategoryLabel } from '../../types';
 import type { Card, GameSettings } from '../../types';
 
 const SLOT_COLORS = [

@@ -1,5 +1,5 @@
 import type { BaseCategory, BoardCategory, Card, DeckState, Difficulty, DifficultySelection } from '../types';
-import { MIXED_DISTRIBUTION, BASE_CATEGORIES } from '../types';
+import { MIXED_DISTRIBUTION } from '../types';
 import { shuffleArray, normalizeWord, getCardWords } from '../utils';
 
 /**
