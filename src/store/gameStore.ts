@@ -36,9 +36,15 @@ function drawCardOrReshuffle(
   const result = rawDrawCard(deck, cMap);
   if (result) return result;
 
-  // Deck exhausted — reshuffle with fresh seenWords
+  // Deck exhausted — reshuffle but preserve seenWords to prevent repeats
   const freshDeck = createDeck(cards, difficulty);
-  return rawDrawCard(freshDeck, cMap);
+  freshDeck.seenWords = deck.seenWords;
+  const retryResult = rawDrawCard(freshDeck, cMap);
+  if (retryResult) return retryResult;
+
+  // All cards conflict with seen words — reset seenWords as last resort
+  const resetDeck = createDeck(cards, difficulty);
+  return rawDrawCard(resetDeck, cMap);
 }
 
 // ── Auto-assign players to N teams ──────────────────────────────
@@ -75,6 +81,7 @@ interface LiveTurn {
 interface GameStore {
   // State
   phase: GamePhase;
+  gameId: string | null;
   players: Player[];
   teams: Team[];
   settings: GameSettings;
@@ -84,6 +91,8 @@ interface GameStore {
   turnHistory: TurnRecord[];
   liveTurn: LiveTurn | null;
   isPaused: boolean;
+  turnStartedAt: number | null;
+  pausedWithRemaining: number | null;
   animatingTeamId: string | null;
   animationPath: number[];
   winnerTeamId: string | null;
@@ -140,6 +149,7 @@ interface GameStore {
 
 export const useGameStore = create<GameStore>((set, get) => ({
   phase: 'home',
+  gameId: null,
   players: [],
   teams: [],
   settings: { ...DEFAULT_SETTINGS },
@@ -149,6 +159,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   turnHistory: [],
   liveTurn: null,
   isPaused: false,
+  turnStartedAt: null,
+  pausedWithRemaining: null,
   animatingTeamId: null,
   animationPath: [],
   winnerTeamId: null,
@@ -322,8 +334,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const board = generateBoard(settings.boardSize, boardCats);
     const deck = createDeck(cards, settings.difficulty);
+
+    // Create a server session for display sync
+    let gameId: string | null = null;
+    try {
+      const res = await fetch('/api/games', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        gameId = data.gameId;
+      }
+    } catch {
+      // Server unavailable — local-only mode, generate a local ID
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      gameId = '';
+      for (let i = 0; i < 6; i++) gameId += chars[Math.floor(Math.random() * chars.length)];
+    }
+
     set({
       phase: 'turn_intro',
+      gameId,
       boardSpaces: board,
       deck,
       activeCards: cards,
@@ -331,6 +360,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       currentTeamIndex: 0,
       turnHistory: [],
       liveTurn: null,
+      turnStartedAt: null,
+      pausedWithRemaining: null,
       animatingTeamId: null,
       animationPath: [],
       winnerTeamId: null,
@@ -365,6 +396,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       phase: 'playing',
       isPaused: false,
+      turnStartedAt: Date.now(),
+      pausedWithRemaining: null,
       deck: newDeck,
       liveTurn: {
         teamId: team.id,
@@ -442,7 +475,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   endTimer: () => {
-    set({ phase: 'turn_review' });
+    set({ phase: 'turn_review', turnStartedAt: null, pausedWithRemaining: null });
   },
 
   toggleReviewItem: (index) => {
@@ -592,7 +625,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().saveState();
   },
 
-  togglePause: () => set({ isPaused: !get().isPaused }),
+  togglePause: () => {
+    const { isPaused, turnStartedAt, settings, pausedWithRemaining } = get();
+    if (!isPaused) {
+      // Pausing: calculate remaining time
+      const elapsed = turnStartedAt ? (Date.now() - turnStartedAt) / 1000 : 0;
+      const remaining = Math.max(0, Math.ceil(settings.timerDuration - elapsed));
+      set({ isPaused: true, pausedWithRemaining: remaining });
+    } else {
+      // Resuming: adjust turnStartedAt so timer continues correctly
+      const newStartedAt = pausedWithRemaining !== null
+        ? Date.now() - (settings.timerDuration - pausedWithRemaining) * 1000
+        : Date.now();
+      set({ isPaused: false, turnStartedAt: newStartedAt, pausedWithRemaining: null });
+    }
+  },
 
   // ── Redemption & placements ───────────────────────────────────
 
@@ -615,6 +662,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const s = get();
     storage.set('saved_game', {
       phase: s.phase,
+      gameId: s.gameId,
       players: s.players,
       teams: s.teams,
       settings: s.settings,
@@ -636,6 +684,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     try {
       set({
         phase: saved.phase,
+        gameId: saved.gameId || null,
         players: saved.players,
         teams: saved.teams,
         settings: saved.settings,
@@ -671,6 +720,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   resetGame: () => {
     set({
       phase: 'home',
+      gameId: null,
       players: [],
       teams: [],
       settings: { ...DEFAULT_SETTINGS },
@@ -680,6 +730,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       turnHistory: [],
       liveTurn: null,
       isPaused: false,
+      turnStartedAt: null,
+      pausedWithRemaining: null,
       animatingTeamId: null,
       animationPath: [],
       winnerTeamId: null,
@@ -697,6 +749,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   goHome: () => {
     set({
       phase: 'home',
+      gameId: null,
       players: [],
       teams: [],
       settings: { ...DEFAULT_SETTINGS },
@@ -706,6 +759,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       turnHistory: [],
       liveTurn: null,
       isPaused: false,
+      turnStartedAt: null,
+      pausedWithRemaining: null,
       animatingTeamId: null,
       animationPath: [],
       winnerTeamId: null,

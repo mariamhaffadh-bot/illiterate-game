@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from './store/gameStore';
+import { useGameSync } from './hooks/useGameSync';
 import { HomeScreen } from './components/screens/HomeScreen';
 import { PlayerSetup } from './components/screens/PlayerSetup';
 import { TeamSetup } from './components/screens/TeamSetup';
@@ -11,6 +12,8 @@ import { TurnReview } from './components/screens/TurnReview';
 import { PieceMoving } from './components/screens/PieceMoving';
 import { GameOver } from './components/screens/GameOver';
 import { RedemptionResult } from './components/screens/RedemptionResult';
+import { DisplayPage } from './components/screens/DisplayPage';
+import { DisplayLinkModal } from './components/screens/DisplayLink';
 import { storage } from './utils';
 
 function useTheme() {
@@ -33,12 +36,39 @@ const GAME_PHASES = new Set([
   'game_over', 'redemption_result',
 ]);
 
+function useHashRoute() {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+  return hash;
+}
+
+function AppRouter() {
+  const hash = useHashRoute();
+
+  // Match #/display/GAMEID
+  const displayMatch = hash.match(/^#\/display\/([A-Z0-9]+)$/i);
+  if (displayMatch) {
+    return <DisplayPage gameId={displayMatch[1].toUpperCase()} />;
+  }
+
+  return <App />;
+}
+
 function App() {
   const phase = useGameStore((s) => s.phase);
+  const gameId = useGameStore((s) => s.gameId);
   const goHome = useGameStore((s) => s.goHome);
   const { dark, toggle } = useTheme();
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showDisplayLink, setShowDisplayLink] = useState(false);
+
+  // WebSocket sync — pushes public state to display clients
+  useGameSync();
 
   const inGame = GAME_PHASES.has(phase);
 
@@ -71,6 +101,24 @@ function App() {
     <div className="min-h-[100dvh] bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       {/* Top-right controls */}
       <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 9999, display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Display Board button */}
+        {inGame && gameId && (
+          <button
+            onClick={() => setShowDisplayLink(true)}
+            style={{
+              height: 36, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              paddingLeft: 12, paddingRight: 12, gap: 6,
+              background: dark ? '#1f2937' : '#f3f4f6', color: dark ? '#d1d5db' : '#4b5563',
+              border: dark ? '1px solid #374151' : '1px solid #d1d5db', cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)', fontSize: 12, fontWeight: 600,
+            }}
+            title="Open board display"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            TV
+          </button>
+        )}
+
         {/* Dark/Light toggle */}
         <button
           onClick={toggle}
@@ -119,6 +167,15 @@ function App() {
           ?
         </button>
       </div>
+
+      {/* Display Link Modal */}
+      {gameId && (
+        <DisplayLinkModal
+          gameId={gameId}
+          isOpen={showDisplayLink}
+          onClose={() => setShowDisplayLink(false)}
+        />
+      )}
 
       {/* Leave confirmation dialog */}
       <AnimatePresence>
@@ -233,4 +290,4 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export default App;
+export default AppRouter;

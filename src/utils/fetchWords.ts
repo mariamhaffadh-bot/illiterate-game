@@ -108,14 +108,51 @@ async function getCategoryPages(catTitle: string): Promise<string[]> {
 }
 
 /**
- * Fetch words/items for a custom category from Wikipedia.
- * Uses multiple strategies for maximum coverage.
+ * Try the LLM-powered word generation endpoint first.
+ * Falls back to Wikipedia if the server doesn't support it.
+ */
+async function fetchWordsFromLLM(category: string, target: number): Promise<string[] | null> {
+  try {
+    const res = await fetch('/api/generate-words', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, count: target }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (Array.isArray(data.words) && data.words.length > 0) {
+      return data.words;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch words/items for a custom category.
+ * Tries LLM-powered generation first, falls back to Wikipedia scraping.
  */
 export async function fetchWordsForCategory(
   category: string,
   target: number = 60
 ): Promise<string[]> {
+  // Try LLM first — produces much better, more relevant words
+  const llmWords = await fetchWordsFromLLM(category, target);
+  if (llmWords && llmWords.length >= 10) {
+    return llmWords;
+  }
+
+  // Fallback to Wikipedia scraping
   const words = new Set<string>();
+
+  // If LLM returned some words but not enough, include them
+  if (llmWords) {
+    for (const w of llmWords) words.add(w);
+  }
+
   const addWords = (titles: string[]) => {
     for (const t of titles) {
       if (isGoodGameWord(t)) words.add(cleanTitle(t));
