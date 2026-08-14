@@ -54,28 +54,45 @@ app.post('/api/games', (_req, res) => {
 
 // ── Word Generation (LLM-powered) ──────────────────────────────
 
-const WORD_GEN_PROMPT = `You are a word generator for a competitive party word-guessing game similar to Articulate.
-Your job is to generate words or phrases for ANY category a player defines.
+const WORD_GEN_PROMPT = `You are a word bank for a party guessing game. Generate words for this category.
 
-CATEGORY: {{CATEGORY}}
-ALREADY USED: {{USED_WORDS_ARRAY}}
-QUANTITY NEEDED: {{COUNT}}
+CATEGORY: "{{CATEGORY}}"
 
-RULES:
-1. Return ONLY a valid JSON array of strings. No explanation, no markdown, no preamble.
-2. Every item MUST be a genuine, specific, well-known example of the category — if someone who knows the category well would say "that doesn't belong," reject it.
-3. NEVER repeat any word from the ALREADY USED list.
-4. Interpret the category LITERALLY and SPECIFICALLY. If the category is "90s Pop Songs", return actual 90s pop song titles — not general music terms. If the category is "Things in a Dentist's Office", return specific items found there — not vague health words.
-5. Bias toward items that are:
-   - Recognizable to a general adult audience
-   - Describable without saying the word itself (good for guessing games)
-   - Specific enough to be unambiguous (e.g. "Michael Jordan" not just "athlete")
-6. Avoid overly obscure items unless the category itself demands niche knowledge.
-7. If the category is ambiguous, pick the most fun and playable interpretation.
-8. Vary difficulty — mix easy, medium, and hard items in each batch.
+═══════════════════════════════════════
+BANNED LIST — NEVER OUTPUT THESE:
+{{USED_WORDS_LIST}}
+═══════════════════════════════════════
 
-Return exactly {{COUNT}} items as a flat JSON array.
-Example output format: ["item one", "item two", "item three"]`;
+YOUR TASK:
+Generate exactly {{COUNT}} words/phrases that belong to "{{CATEGORY}}".
+
+CRITICAL ANTI-REPEAT CONTRACT:
+- Before outputting ANY word, mentally check it against the BANNED LIST above.
+- If a word appears on the BANNED LIST in ANY form (different casing, with/without
+  articles like "the"/"a", plural vs singular, abbreviated) — DISCARD IT and pick another.
+- Do NOT output synonyms or near-duplicates of banned words either.
+  Example: if "automobile" is banned, do NOT output "car", "auto", or "vehicle".
+- Each word in your output must also be unique from every OTHER word in your output.
+- You have the entire English language and world knowledge at your disposal —
+  there is NO excuse to repeat. If you are running low on ideas, go deeper into
+  subcategories, be more specific, or explore less obvious members of "{{CATEGORY}}".
+
+QUALITY RULES:
+- Every item must unambiguously belong to "{{CATEGORY}}" — no stretching.
+- Items must be guessable in a party game (describable without saying the word).
+- Mix difficulty: roughly 40% easy, 40% medium, 20% hard/obscure.
+- Prefer specific over generic: "Leonardo da Vinci" beats "famous artist".
+
+OUTPUT FORMAT:
+Return ONLY a raw JSON array. No markdown. No explanation. No numbering.
+["word one", "word two", "word three"]
+
+FINAL CHECK BEFORE RESPONDING:
+1. Count your items — is it exactly {{COUNT}}? ✓
+2. Cross-check every item against the BANNED LIST — any matches? Remove them. ✓
+3. Check your items against each other — any duplicates? Remove them. ✓
+4. Does every item genuinely belong to "{{CATEGORY}}"? ✓
+Only output after all four checks pass.`;
 
 app.post('/api/generate-words', async (req, res) => {
   const { category, usedWords = [], count = 60 } = req.body;
@@ -88,9 +105,13 @@ app.post('/api/generate-words', async (req, res) => {
     return res.status(501).json({ error: 'no_api_key', message: 'ANTHROPIC_API_KEY not configured' });
   }
 
+  const bannedList = usedWords.length > 0
+    ? usedWords.map(w => `- ${w}`).join('\n')
+    : '(none)';
+
   const prompt = WORD_GEN_PROMPT
-    .replace('{{CATEGORY}}', category)
-    .replace('{{USED_WORDS_ARRAY}}', JSON.stringify(usedWords))
+    .replace(/\{\{CATEGORY\}\}/g, category)
+    .replace('{{USED_WORDS_LIST}}', bannedList)
     .replace(/\{\{COUNT\}\}/g, String(count));
 
   try {
