@@ -48,7 +48,7 @@ export function TurnIntro() {
     >
       {/* Board (visible on larger screens) */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 table-surface relative">
-        <div className="w-full max-w-[600px] relative z-10">
+        <div className="w-full max-w-[750px] relative z-10">
           <GameBoard
             spaces={boardSpaces}
             teams={teams}

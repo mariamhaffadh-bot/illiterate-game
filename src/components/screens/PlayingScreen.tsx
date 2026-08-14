@@ -5,6 +5,7 @@ import { useTimer } from '../../hooks/useTimer';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSound } from '../../hooks/useSound';
 import { TimerRing } from '../ui/TimerRing';
+import { startCountdown, stopCountdown, playTimeUp, ensureAudioReady } from '../../engine/audioEngine';
 import { TEAM_COLORS, CATEGORY_META, getActiveBaseCategories, getCategoryLabel } from '../../types';
 import type { Card, GameSettings } from '../../types';
 
@@ -38,7 +39,7 @@ function CardDisplay({ card, settings }: { card: Card; settings: GameSettings })
                   className="text-[10px] sm:text-xs font-game-category uppercase tracking-wider"
                   style={{ color: meta.bg }}
                 >
-                  {meta.icon} {label}
+                  {label}
                 </span>
               </div>
 
@@ -84,14 +85,19 @@ export function PlayingScreen() {
   const catLabel = category ? (isSpadeTurn ? 'Spade' : getCategoryLabel(category, settings)) : '';
   const correctCount = liveTurn?.cardResults.filter((c) => c.markedCorrect).length ?? 0;
 
+  const countdownStartedRef = useRef(false);
+
   const { remaining, isUrgent, isCritical, start } = useTimer({
     duration: settings.timerDuration,
     onTick: (r) => {
-      if (r === 10) play('timeWarning');
-      if (r <= 5 && r > 0) play('tick');
+      if (r === 10 && !countdownStartedRef.current) {
+        countdownStartedRef.current = true;
+        startCountdown(10);
+      }
     },
     onComplete: () => {
-      play('timeUp');
+      stopCountdown();
+      playTimeUp();
       endTimer();
     },
     paused: isPaused,
@@ -99,9 +105,22 @@ export function PlayingScreen() {
 
   useEffect(() => { start(); }, [start]);
 
+  // Stop countdown audio if paused
+  useEffect(() => {
+    if (isPaused) stopCountdown();
+    else if (remaining <= 10 && remaining > 0) {
+      countdownStartedRef.current = true;
+      startCountdown(remaining);
+    }
+  }, [isPaused]);
+
+  // Cleanup countdown on unmount
+  useEffect(() => () => stopCountdown(), []);
+
   const handleCorrect = () => {
     if (processingRef.current || !liveTurn?.currentCard) return;
     processingRef.current = true;
+    ensureAudioReady();
     play('correct');
     setFlash('correct');
     markCorrect();
@@ -111,6 +130,7 @@ export function PlayingScreen() {
   const handlePass = () => {
     if (processingRef.current || !liveTurn?.currentCard) return;
     processingRef.current = true;
+    ensureAudioReady();
     play('pass');
     setFlash('pass');
     markPass();

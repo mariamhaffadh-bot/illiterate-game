@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from './store/gameStore';
 import { useGameSync } from './hooks/useGameSync';
+import { isMuted, toggleMute, ensureAudioReady } from './engine/audioEngine';
 import { HomeScreen } from './components/screens/HomeScreen';
 import { PlayerSetup } from './components/screens/PlayerSetup';
 import { TeamSetup } from './components/screens/TeamSetup';
@@ -66,6 +67,7 @@ function App() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showDisplayLink, setShowDisplayLink] = useState(false);
+  const [muted, setMuted] = useState(isMuted);
 
   // WebSocket sync — pushes public state to display clients
   useGameSync();
@@ -101,6 +103,20 @@ function App() {
     <div className="min-h-[100dvh] bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       {/* Top-right controls */}
       <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 9999, display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Mute toggle */}
+        <button
+          onClick={() => { ensureAudioReady(); setMuted(toggleMute()); }}
+          style={{
+            width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: dark ? '#1f2937' : '#f3f4f6', color: dark ? '#d1d5db' : '#4b5563',
+            border: dark ? '1px solid #374151' : '1px solid #d1d5db', cursor: 'pointer',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)', fontSize: 16,
+          }}
+          title={muted ? 'Unmute sounds' : 'Mute sounds'}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
+
         {/* Display Board button */}
         {inGame && gameId && (
           <button

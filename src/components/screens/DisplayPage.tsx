@@ -221,7 +221,7 @@ function DisplayTurnIntro({ state }: { state: PublicDisplayState }) {
     >
       {/* Board (left side on large screens) */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 bg-gray-900/50">
-        <div className="w-full max-w-[600px]">
+        <div className="w-full max-w-[750px]">
           <GameBoard
             spaces={state.boardSpaces}
             teams={state.teams as any}
@@ -555,7 +555,7 @@ function DisplayPieceMoving({ state }: { state: PublicDisplayState }) {
       </motion.div>
 
       {/* Board */}
-      <div className="w-full max-w-[700px] mx-auto">
+      <div className="w-full max-w-[850px] mx-auto">
         <GameBoard
           spaces={state.boardSpaces}
           teams={state.teams as any}
