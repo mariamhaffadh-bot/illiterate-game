@@ -47,8 +47,8 @@ export function TurnIntro() {
       className="min-h-[100dvh] flex flex-col lg:flex-row"
     >
       {/* Board (visible on larger screens) */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 bg-gray-50 dark:bg-gray-800/30">
-        <div className="w-full max-w-[600px]">
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 table-surface relative">
+        <div className="w-full max-w-[600px] relative z-10">
           <GameBoard
             spaces={boardSpaces}
             teams={teams}
@@ -113,10 +113,14 @@ export function TurnIntro() {
               <div className="space-y-2 pt-2">
                 <p className="text-sm text-gray-400">You're on</p>
                 <div
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl text-2xl font-extrabold text-white"
-                  style={{ backgroundColor: catMeta.bg }}
+                  className="category-tile category-tile-raised inline-flex items-center gap-2 px-6 py-3 text-2xl category-glow"
+                  style={{
+                    background: `linear-gradient(135deg, ${catMeta.color}, ${catMeta.bg})`,
+                    '--tile-dark': catMeta.dark,
+                    '--glow-color': catMeta.bg,
+                  } as React.CSSProperties}
                 >
-                  {category === 'SPADE' ? '♠ Spade' : getCategoryLabel(category, settings)}
+                  {category === 'SPADE' ? `${catMeta.icon} Spade` : `${catMeta.icon} ${getCategoryLabel(category, settings)}`}
                 </div>
                 {category === 'SPADE' && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-xs mx-auto">

@@ -37,7 +37,7 @@ export function HomeScreen() {
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-          className="text-6xl sm:text-7xl font-extrabold tracking-tight text-gray-900 dark:text-white"
+          className="text-6xl sm:text-7xl font-game-title tracking-tight text-gray-900 dark:text-white"
         >
           Illi
           <span className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent">

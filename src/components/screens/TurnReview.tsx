@@ -48,8 +48,14 @@ export function TurnReview() {
             <span className="text-gray-400">·</span>
             <span className="text-gray-500">{describer?.name}</span>
             <span className="text-gray-400">·</span>
-            <span className="text-xs font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: catMeta.bg }}>
-              {getCategoryLabel(liveTurn.category, settings)}
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded-lg text-white font-game-category"
+              style={{
+                background: `linear-gradient(135deg, ${catMeta.color}, ${catMeta.bg})`,
+                textShadow: '0 1px 2px rgba(0,0,0,0.4)',
+              }}
+            >
+              {catMeta.icon} {getCategoryLabel(liveTurn.category, settings)}
             </span>
           </div>
         </div>

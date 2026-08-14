@@ -72,10 +72,10 @@ export function PieceMoving() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-6"
+      className="min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-6 table-surface"
     >
       {/* Board */}
-      <div className="w-full max-w-[600px] mx-auto">
+      <div className="w-full max-w-[600px] mx-auto relative z-10">
         <GameBoard
           spaces={boardSpaces}
           teams={teams}
@@ -100,12 +100,12 @@ export function PieceMoving() {
               <span className="text-lg font-bold" style={{ color: tc.bg }}>
                 {animatingTeam?.name}
               </span>
-              <span className="text-gray-400">moved {lastTurn?.confirmedScore ?? 0} spaces</span>
+              <span className="text-gray-300">moved {lastTurn?.confirmedScore ?? 0} spaces</span>
             </div>
 
             {landingPosition < boardSpaces.length ? (
               <div>
-                <p className="text-sm text-gray-400 mb-1">Landed on</p>
+                <p className="text-sm text-gray-300 mb-1">Landed on</p>
                 <span
                   className="inline-block px-6 py-2 rounded-xl text-xl font-bold text-white"
                   style={{ backgroundColor: landingMeta.bg }}

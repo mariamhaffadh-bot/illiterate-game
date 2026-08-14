@@ -8,14 +8,14 @@ export type BaseCategory = (typeof BASE_CATEGORIES)[number];
 export const BOARD_CATEGORIES = ['ACTION', 'OBJECT', 'NATURE', 'RANDOM', 'PERSON', 'WORLD', 'SPADE'] as const;
 export type BoardCategory = (typeof BOARD_CATEGORIES)[number];
 
-export const CATEGORY_META: Record<BoardCategory, { label: string; color: string; bg: string; light: string }> = {
-  ACTION:  { label: 'Action',  color: '#DC2626', bg: '#EF4444', light: '#FEE2E2' },
-  OBJECT:  { label: 'Object',  color: '#2563EB', bg: '#3B82F6', light: '#DBEAFE' },
-  NATURE:  { label: 'Nature',  color: '#16A34A', bg: '#22C55E', light: '#DCFCE7' },
-  RANDOM:  { label: 'Random',  color: '#7C3AED', bg: '#A855F7', light: '#F3E8FF' },
-  PERSON:  { label: 'Person',  color: '#D97706', bg: '#F59E0B', light: '#FEF3C7' },
-  WORLD:   { label: 'World',   color: '#0891B2', bg: '#06B6D4', light: '#CFFAFE' },
-  SPADE:   { label: 'Spade',   color: '#1F2937', bg: '#374151', light: '#F3F4F6' },
+export const CATEGORY_META: Record<BoardCategory, { label: string; color: string; bg: string; light: string; dark: string; icon: string }> = {
+  ACTION:  { label: 'Action',  color: '#E74C3C', bg: '#C0392B', light: '#FADBD8', dark: '#7B241C', icon: '🎬' },
+  OBJECT:  { label: 'Object',  color: '#5DADE2', bg: '#2471A3', light: '#D4E6F1', dark: '#1A5276', icon: '🔧' },
+  NATURE:  { label: 'Nature',  color: '#2ECC71', bg: '#1E8449', light: '#D5F5E3', dark: '#145A32', icon: '🌿' },
+  RANDOM:  { label: 'Random',  color: '#AF7AC5', bg: '#7D3C98', light: '#E8DAEF', dark: '#512E5F', icon: '🎲' },
+  PERSON:  { label: 'Person',  color: '#F4D03F', bg: '#D4A017', light: '#FEF9E7', dark: '#9A7D0A', icon: '👤' },
+  WORLD:   { label: 'World',   color: '#1ABC9C', bg: '#117A65', light: '#D1F2EB', dark: '#0B5345', icon: '🌍' },
+  SPADE:   { label: 'Spade',   color: '#5D6D7E', bg: '#1A5276', light: '#D6DBDF', dark: '#0E2F44', icon: '♠️' },
 };
 
 // ── Board Spaces ─────────────────────────────────────────────────
