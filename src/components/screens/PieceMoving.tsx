@@ -75,7 +75,7 @@ export function PieceMoving() {
       className="min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-6 table-surface"
     >
       {/* Board */}
-      <div className="w-full max-w-[750px] mx-auto relative z-10">
+      <div className="w-full max-w-[900px] mx-auto relative z-10">
         <GameBoard
           spaces={boardSpaces}
           teams={teams}
