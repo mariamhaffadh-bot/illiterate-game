@@ -7,7 +7,7 @@ import { TEAM_COLORS, CATEGORY_META, GAME_PIECES, getCategoryLabel } from '../..
 import { getCurrentDescriber } from '../../engine/game';
 import { getCategoryAtPosition } from '../../engine/board';
 import { useSound } from '../../hooks/useSound';
-import { ensureAudioReady } from '../../engine/audioEngine';
+import { initAudio } from '../../engine/audioEngine';
 
 export function TurnIntro() {
   const teams = useGameStore((s) => s.teams);
@@ -131,7 +131,7 @@ export function TurnIntro() {
               </div>
 
               <div className="pt-6">
-                <Button size="xl" onClick={() => { ensureAudioReady(); setCountdown(3); }} color={tc.bg}>
+                <Button size="xl" onClick={() => { initAudio(); setCountdown(3); }} color={tc.bg}>
                   Start Turn
                 </Button>
               </div>

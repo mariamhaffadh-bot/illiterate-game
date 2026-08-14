@@ -5,7 +5,7 @@ import { useTimer } from '../../hooks/useTimer';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSound } from '../../hooks/useSound';
 import { TimerRing } from '../ui/TimerRing';
-import { startCountdown, stopCountdown, playTimeUp, ensureAudioReady } from '../../engine/audioEngine';
+import { startCountdown, stopCountdown, playTimeUp, initAudio } from '../../engine/audioEngine';
 import { TEAM_COLORS, CATEGORY_META, getActiveBaseCategories, getCategoryLabel } from '../../types';
 import type { Card, GameSettings } from '../../types';
 
@@ -120,7 +120,7 @@ export function PlayingScreen() {
   const handleCorrect = () => {
     if (processingRef.current || !liveTurn?.currentCard) return;
     processingRef.current = true;
-    ensureAudioReady();
+    initAudio();
     play('correct');
     setFlash('correct');
     markCorrect();
@@ -130,7 +130,7 @@ export function PlayingScreen() {
   const handlePass = () => {
     if (processingRef.current || !liveTurn?.currentCard) return;
     processingRef.current = true;
-    ensureAudioReady();
+    initAudio();
     play('pass');
     setFlash('pass');
     markPass();
@@ -158,7 +158,7 @@ export function PlayingScreen() {
     >
       {/* Temporary test sound button */}
       <button
-        onClick={() => { ensureAudioReady(); startCountdown(10); }}
+        onClick={() => { initAudio(); startCountdown(10); }}
         style={{
           position: 'fixed', bottom: 12, left: 12, zIndex: 9999,
           padding: '8px 12px', borderRadius: 8,
