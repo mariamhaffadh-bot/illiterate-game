@@ -13,17 +13,33 @@ const STORAGE_KEY = 'wordparty_muted';
 
 function getCtx(): AudioContext {
   if (!ctx) {
-    ctx = new AudioContext();
-    masterGain = ctx.createGain();
-    masterGain.connect(ctx.destination);
+    const ac = new ((window as any).AudioContext || (window as any).webkitAudioContext)() as AudioContext;
+    const mg = ac.createGain();
+    mg.connect(ac.destination);
     // Restore mute preference
     try {
       const muted = localStorage.getItem(STORAGE_KEY) === '1';
-      if (muted) masterGain.gain.value = 0;
+      mg.gain.value = muted ? 0 : 1;
     } catch { /* noop */ }
+
+    ctx = ac;
+    masterGain = mg;
+
+    // Safari fix: one-time unlock on the very first user gesture
+    const unlockAudio = () => {
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume();
+      }
+    };
+    ['click', 'touchstart', 'keydown'].forEach(event => {
+      document.addEventListener(event, unlockAudio, { once: true });
+    });
   }
-  // Resume if suspended (browser autoplay policy)
-  if (ctx.state === 'suspended') ctx.resume();
+
+  // Always try to resume when accessed
+  if (ctx.state === 'suspended') {
+    ctx.resume();
+  }
   return ctx;
 }
 
@@ -36,6 +52,7 @@ function getMasterGain(): GainNode {
 
 function playTone(frequency: number, duration: number, gain: number, type: OscillatorType = 'sine') {
   const c = getCtx();
+  console.log('[AUDIO] playTone', frequency, 'Hz, gain', gain, 'ctx.state:', c.state);
   const osc = c.createOscillator();
   const g = c.createGain();
   osc.connect(g);
@@ -78,6 +95,7 @@ function tickForSecond(s: number) {
  * Plays a tick immediately for the current second, then every 1s.
  */
 export function startCountdown(secondsRemaining: number) {
+  console.log('[AUDIO] startCountdown called with', secondsRemaining);
   stopCountdown(); // clear any existing countdown
   currentSecond = secondsRemaining;
 
@@ -111,6 +129,7 @@ export function stopCountdown() {
  * 600Hz → 400Hz → 250Hz, each 120ms.
  */
 export function playTimeUp() {
+  console.log('[AUDIO] playTimeUp called');
   const c = getCtx();
   const tones = [600, 400, 250];
   const duration = 0.12;
@@ -162,9 +181,10 @@ export function toggleMute(): boolean {
 }
 
 /**
- * Ensure AudioContext is initialised. Call from any user gesture handler
- * (click, keydown) to satisfy browser autoplay policy.
+ * Ensure AudioContext is initialised and resumed.
+ * Call from any user gesture handler to satisfy browser autoplay policy.
  */
 export function ensureAudioReady() {
-  getCtx();
+  const c = getCtx();
+  console.log('[AUDIO] ensureAudioReady, ctx.state:', c.state, 'masterGain:', masterGain?.gain.value);
 }

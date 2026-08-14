@@ -156,6 +156,19 @@ export function PlayingScreen() {
         isCritical ? 'bg-red-50 dark:bg-red-950/20' : isUrgent ? 'bg-amber-50 dark:bg-amber-950/20' : 'bg-gray-50 dark:bg-gray-900'
       }`}
     >
+      {/* Temporary test sound button */}
+      <button
+        onClick={() => { ensureAudioReady(); startCountdown(10); }}
+        style={{
+          position: 'fixed', bottom: 12, left: 12, zIndex: 9999,
+          padding: '8px 12px', borderRadius: 8,
+          background: '#7D3C98', color: 'white', fontSize: 12, fontWeight: 700,
+          cursor: 'pointer', border: 'none',
+        }}
+      >
+        Test Sound 🔊
+      </button>
+
       {/* Flash overlay */}
       <AnimatePresence>
         {flash && (
