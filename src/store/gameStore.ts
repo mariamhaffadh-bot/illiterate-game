@@ -104,6 +104,14 @@ interface GameStore {
   redemptionTurnsRemaining: number;
   playingForPlacements: boolean;
 
+  // Multiplayer
+  multiplayerRole: 'host' | 'player' | null;
+  isMultiplayer: boolean;
+
+  // Multiplayer actions
+  setMultiplayerMode: (role: 'host' | 'player' | null) => void;
+  startMultiplayerGame: (mp: any) => void;
+
   // Player management
   addPlayer: (name: string) => void;
   removePlayer: (id: string) => void;
@@ -148,7 +156,7 @@ interface GameStore {
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
-  phase: 'home',
+  phase: 'mode_select',
   gameId: null,
   players: [],
   teams: [],
@@ -171,6 +179,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
   redemptionMode: false,
   redemptionTurnsRemaining: 0,
   playingForPlacements: false,
+
+  // Multiplayer
+  multiplayerRole: null,
+  isMultiplayer: false,
+
+  setMultiplayerMode: (role) => set({ multiplayerRole: role, isMultiplayer: role !== null }),
+
+  startMultiplayerGame: (mp) => {
+    const role = get().multiplayerRole;
+    if (role === 'host') {
+      // Host goes to player setup with multiplayer players pre-filled
+      const mpPlayers = mp.players || [];
+      const players = mpPlayers.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        color: p.color || ('#C0392B'),
+      }));
+      set({
+        players,
+        isMultiplayer: true,
+        phase: 'player_setup',
+      });
+    } else {
+      // Non-host player — just wait for game state from host
+      set({ isMultiplayer: true });
+    }
+  },
 
   // ── Player management ──────────────────────────────────────────
 
@@ -719,8 +754,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resetGame: () => {
     set({
-      phase: 'home',
+      phase: 'mode_select',
       gameId: null,
+      multiplayerRole: null,
+      isMultiplayer: false,
       players: [],
       teams: [],
       settings: { ...DEFAULT_SETTINGS },
@@ -748,8 +785,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   goHome: () => {
     set({
-      phase: 'home',
+      phase: 'mode_select',
       gameId: null,
+      multiplayerRole: null,
+      isMultiplayer: false,
       players: [],
       teams: [],
       settings: { ...DEFAULT_SETTINGS },

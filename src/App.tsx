@@ -15,6 +15,8 @@ import { GameOver } from './components/screens/GameOver';
 import { RedemptionResult } from './components/screens/RedemptionResult';
 import { DisplayPage } from './components/screens/DisplayPage';
 import { DisplayLinkModal } from './components/screens/DisplayLink';
+import { ModeSelect } from './components/screens/ModeSelect';
+import { MultiplayerLobby } from './components/screens/MultiplayerLobby';
 import { storage } from './utils';
 
 function useTheme() {
@@ -76,8 +78,12 @@ function App() {
 
   const renderPhase = () => {
     switch (phase) {
+      case 'mode_select':
+        return <ModeSelect key="mode_select" />;
       case 'home':
         return <HomeScreen key="home" />;
+      case 'multiplayer_lobby':
+        return <MultiplayerLobby key="multiplayer_lobby" />;
       case 'player_setup':
         return <PlayerSetup key="player_setup" />;
       case 'team_setup':

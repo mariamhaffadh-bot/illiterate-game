@@ -141,6 +141,7 @@ export interface TurnRecord {
 // ── Game Phases ──────────────────────────────────────────────────
 
 export type GamePhase =
+  | 'mode_select'
   | 'home'
   | 'player_setup'
   | 'team_setup'
@@ -150,7 +151,19 @@ export type GamePhase =
   | 'turn_review'
   | 'piece_moving'
   | 'game_over'
-  | 'redemption_result';
+  | 'redemption_result'
+  | 'multiplayer_lobby';
+
+// ── Multiplayer ─────────────────────────────────────────────────
+
+export type MultiplayerRole = 'host' | 'player' | null;
+
+export interface MultiplayerPlayer {
+  id: string;
+  name: string;
+  isHost: boolean;
+  color: string;
+}
 
 // ── Settings ─────────────────────────────────────────────────────
 
