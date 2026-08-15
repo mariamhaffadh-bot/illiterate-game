@@ -17,6 +17,7 @@ import { DisplayPage } from './components/screens/DisplayPage';
 import { DisplayLinkModal } from './components/screens/DisplayLink';
 import { ModeSelect } from './components/screens/ModeSelect';
 import { MultiplayerLobby } from './components/screens/MultiplayerLobby';
+import { MultiplayerGame } from './components/screens/MultiplayerGame';
 import { storage } from './utils';
 
 function useTheme() {
@@ -84,6 +85,8 @@ function App() {
         return <HomeScreen key="home" />;
       case 'multiplayer_lobby':
         return <MultiplayerLobby key="multiplayer_lobby" />;
+      case 'multiplayer_playing':
+        return <MultiplayerGame key="multiplayer_playing" />;
       case 'player_setup':
         return <PlayerSetup key="player_setup" />;
       case 'team_setup':

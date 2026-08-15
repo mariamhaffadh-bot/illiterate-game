@@ -152,7 +152,8 @@ export type GamePhase =
   | 'piece_moving'
   | 'game_over'
   | 'redemption_result'
-  | 'multiplayer_lobby';
+  | 'multiplayer_lobby'
+  | 'multiplayer_playing';
 
 // ── Multiplayer ─────────────────────────────────────────────────
 

@@ -33,42 +33,96 @@ function generateRoomCode() {
   return code;
 }
 
-function broadcastToRoom(room, message, excludeWs = null) {
-  const payload = JSON.stringify(message);
-  for (const p of room.players) {
-    if (p.ws && p.ws !== excludeWs && p.ws.readyState === 1) {
-      p.ws.send(payload);
-    }
-  }
-}
-
-function getPublicPlayers(room) {
-  return room.players.map(p => ({
-    id: p.id,
-    name: p.name,
-    isHost: p.isHost,
-    color: p.color,
-  }));
-}
-
 const PLAYER_COLORS = [
   '#C0392B', '#2471A3', '#1E8449', '#7D3C98',
   '#D4A017', '#117A65', '#CA6F1E', '#1A5276',
   '#E74C3C', '#5DADE2', '#2ECC71', '#AF7AC5',
 ];
 
+function getPublicPlayers(room) {
+  return room.players.map(p => ({
+    id: p.id, name: p.name, isHost: p.isHost, color: p.color,
+  }));
+}
+
+function pickRandomWord(pool, usedWords) {
+  const available = pool.filter(w => !usedWords.includes(w));
+  if (available.length === 0) return null;
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+/**
+ * Broadcast filtered game state to all players in a room.
+ * currentWord is ONLY sent to the active player — stripped for everyone else.
+ */
+function broadcastGameState(room) {
+  const gs = room.gameState;
+  if (!gs) return;
+
+  for (const p of room.players) {
+    if (!p.ws || p.ws.readyState !== 1) continue;
+
+    // Build a safe copy without wordPools (too large) and filtered word
+    const state = {
+      currentPlayerIndex: gs.currentPlayerIndex,
+      currentPlayerId: gs.currentPlayerId,
+      currentCategory: gs.currentCategory,
+      currentWord: p.id === gs.currentPlayerId ? gs.currentWord : null,
+      scores: gs.scores,
+      players: gs.players,
+      timerSeconds: gs.timerSeconds,
+      turnStartedAt: gs.turnStartedAt,
+      phase: gs.phase,
+      round: gs.round,
+      turnScore: gs.turnScore,
+    };
+
+    p.ws.send(JSON.stringify({ type: 'game_update', gameState: state }));
+  }
+}
+
+function advanceTurn(room) {
+  const gs = room.gameState;
+  // Add turn score to current player
+  gs.scores[gs.currentPlayerId] = (gs.scores[gs.currentPlayerId] || 0) + gs.turnScore;
+
+  // Advance to next player
+  gs.currentPlayerIndex = (gs.currentPlayerIndex + 1) % gs.players.length;
+  gs.currentPlayerId = gs.players[gs.currentPlayerIndex].id;
+
+  // Check if a full round completed
+  if (gs.currentPlayerIndex === 0) {
+    gs.round++;
+  }
+
+  // Pick new category and word
+  gs.currentCategory = gs.categories[Math.floor(Math.random() * gs.categories.length)];
+  const pool = gs.wordPools[gs.currentCategory] || [];
+  const word = pickRandomWord(pool, gs.usedWords);
+
+  if (!word) {
+    // No more words — game over
+    gs.phase = 'gameOver';
+    gs.currentWord = null;
+  } else {
+    gs.currentWord = word;
+    gs.usedWords.push(word);
+    gs.turnScore = 0;
+    gs.turnStartedAt = Date.now();
+    gs.phase = 'playing';
+  }
+
+  broadcastGameState(room);
+}
+
 // Clean up stale rooms and sessions every 30 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of sessions) {
-    if (!session.hostWs && now - session.createdAt > 6 * 60 * 60 * 1000) {
-      sessions.delete(id);
-    }
+    if (!session.hostWs && now - session.createdAt > 6 * 60 * 60 * 1000) sessions.delete(id);
   }
   for (const [code, room] of rooms) {
-    if (now - room.createdAt > 24 * 60 * 60 * 1000) {
-      rooms.delete(code);
-    }
+    if (now - room.createdAt > 24 * 60 * 60 * 1000) rooms.delete(code);
   }
 }, 30 * 60 * 1000);
 
@@ -76,7 +130,6 @@ setInterval(() => {
 
 app.use(express.json());
 
-// Display sessions
 app.post('/api/games', (_req, res) => {
   const id = generateGameId();
   sessions.set(id, { id, createdAt: Date.now(), state: null, hostWs: null, clients: new Set() });
@@ -89,7 +142,6 @@ app.get('/api/games/:id', (req, res) => {
   res.json({ gameId: session.id, hasState: session.state !== null });
 });
 
-// Multiplayer rooms
 app.get('/api/rooms/:code', (req, res) => {
   const room = rooms.get(req.params.code);
   if (!room) return res.status(404).json({ error: 'not_found' });
@@ -115,11 +167,7 @@ CRITICAL ANTI-REPEAT CONTRACT:
 - If a word appears on the BANNED LIST in ANY form (different casing, with/without
   articles like "the"/"a", plural vs singular, abbreviated) — DISCARD IT and pick another.
 - Do NOT output synonyms or near-duplicates of banned words either.
-  Example: if "automobile" is banned, do NOT output "car", "auto", or "vehicle".
 - Each word in your output must also be unique from every OTHER word in your output.
-- You have the entire English language and world knowledge at your disposal —
-  there is NO excuse to repeat. If you are running low on ideas, go deeper into
-  subcategories, be more specific, or explore less obvious members of "{{CATEGORY}}".
 
 QUALITY RULES:
 - Every item must unambiguously belong to "{{CATEGORY}}" — no stretching.
@@ -140,19 +188,12 @@ Only output after all four checks pass.`;
 
 app.post('/api/generate-words', async (req, res) => {
   const { category, usedWords = [], count = 60 } = req.body;
-  if (!category || typeof category !== 'string') {
-    return res.status(400).json({ error: 'category is required' });
-  }
+  if (!category || typeof category !== 'string') return res.status(400).json({ error: 'category is required' });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(501).json({ error: 'no_api_key', message: 'ANTHROPIC_API_KEY not configured' });
-  }
+  if (!apiKey) return res.status(501).json({ error: 'no_api_key', message: 'ANTHROPIC_API_KEY not configured' });
 
-  const bannedList = usedWords.length > 0
-    ? usedWords.map(w => `- ${w}`).join('\n')
-    : '(none)';
-
+  const bannedList = usedWords.length > 0 ? usedWords.map(w => `- ${w}`).join('\n') : '(none)';
   const prompt = WORD_GEN_PROMPT
     .replace(/\{\{CATEGORY\}\}/g, category)
     .replace('{{USED_WORDS_LIST}}', bannedList)
@@ -161,27 +202,12 @@ app.post('/api/generate-words', async (req, res) => {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2048, messages: [{ role: 'user', content: prompt }] }),
     });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('Anthropic API error:', err);
-      return res.status(502).json({ error: 'llm_error' });
-    }
-
+    if (!response.ok) { console.error('Anthropic API error:', await response.text()); return res.status(502).json({ error: 'llm_error' }); }
     const data = await response.json();
     const text = data.content?.[0]?.text ?? '[]';
-
     let words;
     try {
       words = JSON.parse(text);
@@ -189,25 +215,18 @@ app.post('/api/generate-words', async (req, res) => {
       words = words.filter(w => typeof w === 'string' && w.trim().length > 0);
     } catch {
       const match = text.match(/\[[\s\S]*\]/);
-      if (match) {
-        words = JSON.parse(match[0]).filter(w => typeof w === 'string');
-      } else {
-        return res.status(502).json({ error: 'parse_error' });
-      }
+      if (match) words = JSON.parse(match[0]).filter(w => typeof w === 'string');
+      else return res.status(502).json({ error: 'parse_error' });
     }
-
     res.json({ words });
-  } catch (err) {
-    console.error('Word generation error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
+  } catch (err) { console.error('Word generation error:', err); res.status(500).json({ error: 'server_error' }); }
 });
 
 // ── WebSocket ───────────────────────────────────────────────────
 
 wss.on('connection', (ws) => {
   let gameId = null;
-  let role = null;
+  let role = null;       // 'host' | 'display' | 'room_host' | 'room_player'
   let roomCode = null;
   let playerId = null;
 
@@ -216,7 +235,7 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(raw.toString()); } catch { return; }
 
     switch (msg.type) {
-      // ─── Display session messages (unchanged) ────────────
+      // ─── Display session messages ────────────────────────
       case 'host': {
         gameId = msg.gameId?.toUpperCase();
         role = 'host';
@@ -246,9 +265,7 @@ wss.on('connection', (ws) => {
         if (!session) return;
         session.state = msg.data;
         const payload = JSON.stringify({ type: 'state', data: msg.data });
-        for (const client of session.clients) {
-          if (client.readyState === 1) client.send(payload);
-        }
+        for (const client of session.clients) { if (client.readyState === 1) client.send(payload); }
         break;
       }
 
@@ -261,25 +278,12 @@ wss.on('connection', (ws) => {
         role = 'room_host';
 
         const room = {
-          code,
-          hostId: id,
-          status: 'lobby',
-          players: [{
-            id,
-            name: msg.playerName || 'Host',
-            isHost: true,
-            ws,
-            color: PLAYER_COLORS[0],
-          }],
-          createdAt: Date.now(),
+          code, hostId: id, status: 'lobby',
+          players: [{ id, name: msg.playerName || 'Host', isHost: true, ws, color: PLAYER_COLORS[0] }],
+          gameState: null, createdAt: Date.now(),
         };
         rooms.set(code, room);
-        ws.send(JSON.stringify({
-          type: 'room_created',
-          roomCode: code,
-          playerId: id,
-          players: getPublicPlayers(room),
-        }));
+        ws.send(JSON.stringify({ type: 'room_created', roomCode: code, playerId: id, players: getPublicPlayers(room) }));
         break;
       }
 
@@ -291,30 +295,16 @@ wss.on('connection', (ws) => {
         if (room.players.length >= 12) { ws.send(JSON.stringify({ type: 'room_full' })); return; }
 
         const id = crypto.randomUUID();
-        playerId = id;
-        roomCode = code;
-        role = 'room_player';
+        playerId = id; roomCode = code; role = 'room_player';
+        room.players.push({ id, name: msg.playerName || 'Player', isHost: false, ws, color: PLAYER_COLORS[room.players.length % PLAYER_COLORS.length] });
 
-        const player = {
-          id,
-          name: msg.playerName || 'Player',
-          isHost: false,
-          ws,
-          color: PLAYER_COLORS[room.players.length % PLAYER_COLORS.length],
-        };
-        room.players.push(player);
-
-        ws.send(JSON.stringify({
-          type: 'room_joined',
-          roomCode: code,
-          playerId: id,
-          players: getPublicPlayers(room),
-        }));
-
-        broadcastToRoom(room, {
-          type: 'player_joined',
-          players: getPublicPlayers(room),
-        }, ws);
+        ws.send(JSON.stringify({ type: 'room_joined', roomCode: code, playerId: id, players: getPublicPlayers(room) }));
+        // Broadcast to others
+        for (const p of room.players) {
+          if (p.ws && p.ws !== ws && p.ws.readyState === 1) {
+            p.ws.send(JSON.stringify({ type: 'player_joined', players: getPublicPlayers(room) }));
+          }
+        }
         break;
       }
 
@@ -324,11 +314,11 @@ wss.on('connection', (ws) => {
         if (!room) return;
         const target = room.players.find(p => p.id === msg.playerId);
         if (target && !target.isHost) {
-          if (target.ws?.readyState === 1) {
-            target.ws.send(JSON.stringify({ type: 'kicked' }));
-          }
+          if (target.ws?.readyState === 1) target.ws.send(JSON.stringify({ type: 'kicked' }));
           room.players = room.players.filter(p => p.id !== msg.playerId);
-          broadcastToRoom(room, { type: 'player_left', playerId: msg.playerId, players: getPublicPlayers(room) });
+          for (const p of room.players) {
+            if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: 'player_left', players: getPublicPlayers(room) }));
+          }
         }
         break;
       }
@@ -337,46 +327,103 @@ wss.on('connection', (ws) => {
         if (!roomCode || role !== 'room_host') return;
         const room = rooms.get(roomCode);
         if (!room || room.players.length < 2) return;
+
         room.status = 'playing';
-        broadcastToRoom(room, {
-          type: 'game_started',
-          settings: msg.settings,
-          teams: msg.teams,
-          players: getPublicPlayers(room),
-        });
-        break;
-      }
 
-      case 'game_update': {
-        if (!roomCode || role !== 'room_host') return;
-        const room = rooms.get(roomCode);
-        if (!room) return;
-        // Broadcast public state to all non-host players
-        broadcastToRoom(room, { type: 'game_update', state: msg.state }, ws);
-        break;
-      }
+        // Initialize server-managed game state
+        const playerList = room.players.map(p => ({ id: p.id, name: p.name, color: p.color }));
+        const scores = {};
+        playerList.forEach(p => { scores[p.id] = 0; });
 
-      case 'turn_data': {
-        // Host sends private card data to the active describer
-        if (!roomCode || role !== 'room_host') return;
-        const room = rooms.get(roomCode);
-        if (!room) return;
-        const target = room.players.find(p => p.id === msg.targetPlayerId);
-        if (target?.ws?.readyState === 1) {
-          target.ws.send(JSON.stringify({ type: 'turn_data', data: msg.data }));
+        const categories = msg.categories || ['Action', 'Object', 'Nature', 'Person', 'World', 'Random'];
+        const wordPools = msg.wordPools || {};
+        const timerSeconds = msg.timerSeconds || 30;
+
+        const firstCat = categories[Math.floor(Math.random() * categories.length)];
+        const pool = wordPools[firstCat] || [];
+        const firstWord = pickRandomWord(pool, []);
+
+        room.gameState = {
+          currentPlayerIndex: 0,
+          currentPlayerId: playerList[0].id,
+          currentCategory: firstCat,
+          currentWord: firstWord,
+          usedWords: firstWord ? [firstWord] : [],
+          scores,
+          players: playerList,
+          categories,
+          wordPools,
+          timerSeconds,
+          turnStartedAt: Date.now(),
+          phase: firstWord ? 'playing' : 'gameOver',
+          round: 1,
+          turnScore: 0,
+        };
+
+        // Send initial state (game_started with filtered state)
+        for (const p of room.players) {
+          if (!p.ws || p.ws.readyState !== 1) continue;
+          const gs = room.gameState;
+          const state = {
+            currentPlayerIndex: gs.currentPlayerIndex, currentPlayerId: gs.currentPlayerId,
+            currentCategory: gs.currentCategory,
+            currentWord: p.id === gs.currentPlayerId ? gs.currentWord : null,
+            scores: gs.scores, players: gs.players, timerSeconds: gs.timerSeconds,
+            turnStartedAt: gs.turnStartedAt, phase: gs.phase, round: gs.round, turnScore: gs.turnScore,
+          };
+          p.ws.send(JSON.stringify({ type: 'game_started', gameState: state }));
         }
         break;
       }
 
-      case 'player_action': {
-        // Non-host player sends action (correct/skip/endTimer) to the host
+      case 'correct': {
         if (!roomCode) return;
         const room = rooms.get(roomCode);
-        if (!room) return;
-        const host = room.players.find(p => p.isHost);
-        if (host?.ws?.readyState === 1) {
-          host.ws.send(JSON.stringify({ type: 'player_action', playerId, action: msg.action }));
+        if (!room?.gameState || room.gameState.phase !== 'playing') return;
+        if (playerId !== room.gameState.currentPlayerId) return; // Only active player can score
+
+        const gs = room.gameState;
+        gs.turnScore++;
+
+        // Pick new word from same category
+        const pool = gs.wordPools[gs.currentCategory] || [];
+        const newWord = pickRandomWord(pool, gs.usedWords);
+        if (newWord) {
+          gs.currentWord = newWord;
+          gs.usedWords.push(newWord);
+        } else {
+          gs.currentWord = null; // No more words in this category
         }
+
+        broadcastGameState(room);
+        break;
+      }
+
+      case 'skip': {
+        if (!roomCode) return;
+        const room = rooms.get(roomCode);
+        if (!room?.gameState || room.gameState.phase !== 'playing') return;
+        if (playerId !== room.gameState.currentPlayerId) return;
+
+        const gs = room.gameState;
+        const pool = gs.wordPools[gs.currentCategory] || [];
+        const newWord = pickRandomWord(pool, gs.usedWords);
+        if (newWord) {
+          gs.currentWord = newWord;
+          gs.usedWords.push(newWord);
+        } else {
+          gs.currentWord = null;
+        }
+
+        broadcastGameState(room);
+        break;
+      }
+
+      case 'end_turn': {
+        if (!roomCode) return;
+        const room = rooms.get(roomCode);
+        if (!room?.gameState) return;
+        advanceTurn(room);
         break;
       }
 
@@ -385,7 +432,11 @@ wss.on('connection', (ws) => {
         const room = rooms.get(roomCode);
         if (!room) return;
         room.status = 'finished';
-        broadcastToRoom(room, { type: 'game_ended' });
+        if (room.gameState) room.gameState.phase = 'gameOver';
+        broadcastGameState(room);
+        for (const p of room.players) {
+          if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: 'game_ended' }));
+        }
         break;
       }
     }
@@ -395,32 +446,23 @@ wss.on('connection', (ws) => {
     // Display session cleanup
     if (gameId && sessions.has(gameId)) {
       const session = sessions.get(gameId);
-      if (role === 'display') {
-        session.clients.delete(ws);
-      } else if (role === 'host') {
+      if (role === 'display') session.clients.delete(ws);
+      else if (role === 'host') {
         session.hostWs = null;
-        const payload = JSON.stringify({ type: 'host_disconnected' });
-        for (const client of session.clients) {
-          if (client.readyState === 1) client.send(payload);
-        }
+        for (const c of session.clients) { if (c.readyState === 1) c.send(JSON.stringify({ type: 'host_disconnected' })); }
       }
     }
-
-    // Multiplayer room cleanup
+    // Room cleanup
     if (roomCode && rooms.has(roomCode)) {
       const room = rooms.get(roomCode);
       room.players = room.players.filter(p => p.ws !== ws);
-
       if (role === 'room_host') {
-        // Host left — notify all players and remove room
-        broadcastToRoom(room, { type: 'host_left' });
+        for (const p of room.players) { if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: 'host_left' })); }
         rooms.delete(roomCode);
       } else {
-        broadcastToRoom(room, {
-          type: 'player_left',
-          playerId,
-          players: getPublicPlayers(room),
-        });
+        for (const p of room.players) {
+          if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: 'player_left', playerId, players: getPublicPlayers(room) }));
+        }
       }
     }
   });
@@ -445,8 +487,6 @@ app.use(express.static(join(__dirname, 'dist')));
 app.get('/{*splat}', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
-
-// ── Start ───────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
