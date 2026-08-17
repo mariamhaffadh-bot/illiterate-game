@@ -35,6 +35,28 @@ html {
   touch-action: manipulation;
 }
 
+/* Multiplayer input base — prevents Safari zoom */
+.input-base {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #111827;
+  font-family: 'Nunito', sans-serif;
+  font-size: 16px; /* prevents Safari mobile zoom */
+  min-height: 48px;
+}
+.input-base:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #8b5cf6;
+}
+.dark .input-base {
+  border-color: #4b5563;
+  background: #1f2937;
+  color: white;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    BOARD GAME TYPOGRAPHY
    ═══════════════════════════════════════════════════════════════ */
