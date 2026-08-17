@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 import { useMPStore, mpCreateRoom, mpJoinRoom, mpAutoAssign, mpAssignTeams, mpStartGame, mpKick, mpDisconnect } from '../../store/multiplayerStore';
 import { Button } from '../ui/Button';
+import { PlayerBadge } from '../ui/PlayerBadge';
 import { allCards } from '../../data/cards';
-import { BASE_CATEGORIES } from '../../types';
+import { BASE_CATEGORIES, TEAM_COLORS } from '../../types';
 
 export function MultiplayerLobby() {
   const role = useGameStore((s) => s.multiplayerRole);
@@ -150,20 +151,45 @@ export function MultiplayerLobby() {
   // PLAYER WAITING LOBBY
   // ════════════════════════════════════════════════════════════
   if (!isHost) {
-    const myTeam = teams.find(t => t.playerIds.includes(myId || ''));
+    const hasTeams = teams.length > 0 && teams.some(t => t.playerIds.length > 0);
     return (
       <Screen>
         <BackBtn onClick={goBack} label="Leave Room" />
-        <h1 className="text-2xl font-game-title text-gray-900 dark:text-white">You're in! 🎉</h1>
+        <h1 className="text-2xl font-game-title text-gray-900 dark:text-white">
+          {hasTeams ? 'Teams are set! 🎉' : 'You\'re in! 🎉'}
+        </h1>
         <p className="text-gray-500 dark:text-gray-400 font-game-ui">
           Room <span className="font-bold text-gray-900 dark:text-white tracking-widest" style={{ fontSize: 'clamp(1.2rem, 4vw, 1.5rem)' }}>{roomCode}</span>
         </p>
-        {myTeam && <div className="px-4 py-2 rounded-xl text-sm font-bold text-white font-game-ui" style={{ backgroundColor: myTeam.color }}>{myTeam.name}</div>}
-        <PlayerList players={players} myId={myId} />
+
+        {/* Show teams if assigned */}
+        {hasTeams ? (
+          <div className="w-full space-y-3" style={{ maxWidth: 400 }}>
+            {teams.filter(t => t.playerIds.length > 0).map((t, idx) => {
+              const tc = TEAM_COLORS[idx % TEAM_COLORS.length];
+              const names = t.playerIds.map(id => {
+                const p = players.find(pl => pl.id === id);
+                return p ? (p.id === myId ? `${p.name} (You)` : p.name) : 'Unknown';
+              });
+              return (
+                <div key={t.id} className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ backgroundColor: tc.light + '30', borderLeft: `4px solid ${tc.bg}` }}>
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: tc.bg }} />
+                  <div className="flex-1">
+                    <p className="font-bold text-gray-900 dark:text-white font-game-ui text-sm">{t.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-game-ui">{names.join(', ')}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <PlayerList players={players} myId={myId} />
+        )}
+
         <div className="text-center space-y-2 mt-2">
           <div className="animate-pulse text-3xl">⏳</div>
           <p className="text-gray-500 dark:text-gray-400 font-game-ui">
-            {teams.length > 0 ? 'Waiting for host to start...' : 'Waiting for host to set up teams...'}
+            {hasTeams ? 'Waiting for host to start...' : 'Host is setting up teams...'}
           </p>
         </div>
       </Screen>
@@ -171,68 +197,122 @@ export function MultiplayerLobby() {
   }
 
   // ════════════════════════════════════════════════════════════
-  // HOST TEAM ASSIGNMENT
+  // HOST TEAM ASSIGNMENT — mirrors Pass & Play TeamSetup
   // ════════════════════════════════════════════════════════════
   if (showTeams) {
-    const allAssigned = teams.length >= 2 && teams.every(t => t.playerIds.length > 0)
-      && players.every(p => teams.some(t => t.playerIds.includes(p.id)));
-    const unassigned = players.filter(p => !teams.some(t => t.playerIds.includes(p.id)));
+    const assignedIds = new Set(teams.flatMap(t => t.playerIds));
+    const unassigned = players.filter(p => !assignedIds.has(p.id));
+    const allAssigned = unassigned.length === 0 && teams.length >= 2 && teams.every(t => t.playerIds.length > 0);
+
+    const moveToTeam = (playerId: string, teamId: string) => {
+      const updated = teams.map(t => ({
+        name: t.name, color: t.color,
+        playerIds: t.id === teamId
+          ? [...t.playerIds.filter(id => id !== playerId), playerId]
+          : t.playerIds.filter(id => id !== playerId),
+      }));
+      mpAssignTeams(updated);
+    };
+
+    const removeFromTeam = (playerId: string) => {
+      const updated = teams.map(t => ({ name: t.name, color: t.color, playerIds: t.playerIds.filter(id => id !== playerId) }));
+      mpAssignTeams(updated);
+    };
 
     return (
-      <Screen>
-        <BackBtn onClick={() => setShowTeams(false)} label="Back to Lobby" />
-        <h2 className="text-2xl font-game-title text-gray-900 dark:text-white">Assign Teams</h2>
-        <Button variant="secondary" size="md" onClick={() => mpAutoAssign()}>🔀 Auto-Assign</Button>
+      <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}
+        className="min-h-[100dvh] flex flex-col p-6 w-full" style={{ maxWidth: 800, margin: '0 auto' }}>
 
-        {teams.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 w-full" style={{ maxWidth: 480 }}>
-            {teams.map(team => {
-              const tp = players.filter(p => team.playerIds.includes(p.id));
-              return (
-                <div key={team.id} className="rounded-xl p-4 border-2" style={{ borderColor: team.color, background: team.color + '10' }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: team.color }} />
-                    <span className="font-bold text-gray-900 dark:text-white font-game-ui">{team.name}</span>
-                  </div>
-                  {tp.length > 0 ? tp.map(p => (
-                    <div key={p.id} className="flex items-center justify-between py-1">
-                      <span className="text-sm text-gray-700 dark:text-gray-300 font-game-ui">{p.name}</span>
-                      <button onClick={() => {
-                        const updated = teams.map(t => ({ name: t.name, color: t.color, playerIds: t.playerIds.filter(id => id !== p.id) }));
-                        mpAssignTeams(updated);
-                      }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">✕</button>
-                    </div>
-                  )) : <p className="text-xs text-gray-400 italic font-game-ui">Empty</p>}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="pt-8 pb-6">
+          <button onClick={() => setShowTeams(false)}
+            className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mb-6 inline-flex items-center gap-1 cursor-pointer font-game-ui"
+            style={{ minHeight: 48 }}>← Back to Lobby</button>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-game-title">Create Teams</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 font-game-ui">Assign players to teams</p>
+        </div>
 
-        {unassigned.length > 0 && (
-          <div className="w-full space-y-2" style={{ maxWidth: 480 }}>
-            <p className="text-xs text-amber-500 font-game-ui text-center">Assign these players:</p>
-            {unassigned.map(p => (
-              <div key={p.id} className="flex items-center gap-2">
-                <span className="flex-1 font-game-ui text-gray-900 dark:text-white" style={{ fontSize: '1rem' }}>{p.name}</span>
-                <select onChange={e => {
-                  const idx = Number(e.target.value);
-                  const updated = teams.map((t, i) => ({ name: t.name, color: t.color, playerIds: i === idx ? [...t.playerIds.filter(id => id !== p.id), p.id] : t.playerIds.filter(id => id !== p.id) }));
-                  mpAssignTeams(updated);
-                }} defaultValue="" className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-game-ui" style={{ minHeight: 48, fontSize: 16 }}>
-                  <option value="" disabled>Pick team</option>
-                  {teams.map((t, i) => <option key={t.id} value={i}>{t.name}</option>)}
-                </select>
+        {/* Quick actions */}
+        <div className="flex flex-wrap gap-2 mb-6 items-center">
+          <Button variant="secondary" size="sm" onClick={() => mpAutoAssign()}>🔀 Shuffle & Auto-assign</Button>
+        </div>
+
+        {/* Unassigned players */}
+        <AnimatePresence>
+          {unassigned.length > 0 && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-6">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 font-game-ui">Unassigned ({unassigned.length})</p>
+              <div className="flex flex-wrap gap-2 p-4 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                {unassigned.map(p => (
+                  <PlayerBadge key={p.id} name={p.name} color={p.color} />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        <Button size="xl" onClick={startGame} disabled={!allAssigned} className="w-full" style={{ maxWidth: 400 }}>
-          ▶ Start Game
-        </Button>
-        {!allAssigned && teams.length > 0 && <p className="text-xs text-gray-400 text-center font-game-ui">Assign all players first</p>}
-      </Screen>
+        {/* Team cards — mirrors Pass & Play exactly */}
+        <div className="flex-1 grid gap-4 sm:grid-cols-2">
+          {teams.map((team, idx) => {
+            const tc = TEAM_COLORS[idx % TEAM_COLORS.length];
+            const teamPlayers = team.playerIds
+              .map(pid => players.find(p => p.id === pid))
+              .filter(Boolean);
+
+            return (
+              <motion.div key={team.id} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border-2 p-4"
+                style={{ borderColor: tc.mid, backgroundColor: tc.light + '20' }}>
+
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: tc.bg }} />
+                    <span className="text-sm font-bold text-gray-900 dark:text-white font-game-ui">{team.name}</span>
+                  </div>
+                </div>
+
+                {/* Players in this team */}
+                <div className="min-h-[40px] space-y-1.5">
+                  <AnimatePresence mode="popLayout">
+                    {teamPlayers.map(p => (
+                      <PlayerBadge key={p!.id} name={p!.name} color={p!.color} size="sm"
+                        onRemove={() => removeFromTeam(p!.id)} />
+                    ))}
+                  </AnimatePresence>
+                  {teamPlayers.length === 0 && (
+                    <p className="text-xs text-gray-400 italic py-2 font-game-ui">No players yet</p>
+                  )}
+                </div>
+
+                {/* Tap to add unassigned players */}
+                {unassigned.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200/50 dark:border-gray-700/50">
+                    <p className="text-xs text-gray-400 mb-1.5 font-game-ui">Tap to add:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {unassigned.map(p => (
+                        <button key={p.id} onClick={() => moveToTeam(p.id, team.id)}
+                          className="px-2 py-1 text-xs rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer font-game-ui"
+                          style={{ minHeight: 32 }}>
+                          + {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="py-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <span className="text-sm text-gray-400 font-game-ui">
+            {allAssigned ? 'All players assigned ✓' : `${unassigned.length} unassigned`}
+          </span>
+          <Button onClick={startGame} disabled={!allAssigned} size="lg" className="w-full sm:w-auto">
+            ▶ Start Game
+          </Button>
+        </div>
+      </motion.div>
     );
   }
 
