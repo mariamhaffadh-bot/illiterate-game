@@ -1,15 +1,19 @@
-/**
- * Multiplayer state store + WebSocket connection.
- * Module-level WebSocket persists across component remounts.
- */
 import { create } from 'zustand';
-import type { MultiplayerPlayer } from '../types';
 
 function getWsUrl(): string {
   const isDev = window.location.port === '5173';
   if (isDev) return 'ws://localhost:3000';
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}`;
+}
+
+// ── Types ───────────────────────────────────────────────────────
+
+export interface MPPlayer {
+  id: string;
+  name: string;
+  isHost: boolean;
+  color: string;
 }
 
 export interface MPTeam {
@@ -28,39 +32,34 @@ export interface MPGameState {
   currentTeamIndex: number;
   currentExplainerId: string;
   currentCategory: string;
-  currentWord: string | null; // null for non-explainers
+  currentWord: string | null;
   timerSeconds: number;
   turnStartedAt: number;
   turnScore: number;
   round: number;
-  // Turn summary data (shown between turns)
   lastTurnTeamName?: string;
   lastTurnScore?: number;
   nextExplainerName?: string;
   nextTeamName?: string;
 }
 
-interface MultiplayerStore {
-  status: 'idle' | 'connecting' | 'lobby' | 'playing' | 'disconnected' | 'not_found' | 'kicked';
+interface Store {
+  status: 'idle' | 'connecting' | 'lobby' | 'teamSetup' | 'playing' | 'disconnected' | 'error';
+  errorMsg: string | null;
   roomCode: string | null;
   playerId: string | null;
-  players: MultiplayerPlayer[];
+  players: MPPlayer[];
   isHost: boolean;
-  gameState: MPGameState | null;
   teams: MPTeam[];
+  gameState: MPGameState | null;
 }
 
-export const useMultiplayerStore = create<MultiplayerStore>(() => ({
-  status: 'idle',
-  roomCode: null,
-  playerId: null,
-  players: [],
-  isHost: false,
-  gameState: null,
-  teams: [],
+export const useMPStore = create<Store>(() => ({
+  status: 'idle', errorMsg: null, roomCode: null, playerId: null,
+  players: [], isHost: false, teams: [], gameState: null,
 }));
 
-// ── Module-level WebSocket ──────────────────────────────────────
+// ── WebSocket (module-level, survives remounts) ─────────────────
 
 let ws: WebSocket | null = null;
 
@@ -68,58 +67,60 @@ function send(msg: object) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function handleMessage(data: string) {
+function onMsg(data: string) {
   let msg: any;
   try { msg = JSON.parse(data); } catch { return; }
-  const set = useMultiplayerStore.setState;
+  const set = useMPStore.setState;
 
   switch (msg.type) {
     case 'room_created':
-      set({ status: 'lobby', roomCode: msg.roomCode, playerId: msg.playerId, players: msg.players, isHost: true });
+      set({ status: 'lobby', roomCode: msg.roomCode, playerId: msg.playerId, players: msg.players, isHost: true, errorMsg: null });
       break;
     case 'room_joined':
-      set({ status: 'lobby', roomCode: msg.roomCode, playerId: msg.playerId, players: msg.players, isHost: false });
+      set({ status: 'lobby', roomCode: msg.roomCode, playerId: msg.playerId, players: msg.players, isHost: false, errorMsg: null });
       break;
     case 'player_joined':
     case 'player_left':
       set({ players: msg.players });
       break;
-    case 'teams_updated':
+    case 'teams_set':
       set({ teams: msg.teams });
-      break;
-    case 'room_not_found':
-    case 'room_already_started':
-    case 'room_full':
-      set({ status: 'not_found' });
-      break;
-    case 'kicked':
-      set({ status: 'kicked', roomCode: null, playerId: null, players: [], teams: [] });
-      break;
-    case 'host_left':
-      set({ status: 'disconnected' });
       break;
     case 'game_started':
     case 'game_update':
       set({ status: 'playing', gameState: msg.gameState });
       break;
-    case 'game_ended':
-      set({ status: 'lobby', gameState: null, teams: [] });
+    case 'turn_end':
+      set(s => ({ gameState: s.gameState ? { ...s.gameState, ...msg.summary, phase: 'turnSummary' as const } : null }));
+      break;
+    case 'game_over':
+      set(s => ({ gameState: s.gameState ? { ...s.gameState, phase: 'gameOver' as const, teams: msg.finalScores || s.gameState.teams } : null }));
+      break;
+    case 'join_error':
+    case 'room_error':
+      set({ status: 'error', errorMsg: msg.message });
+      break;
+    case 'host_left':
+      set({ status: 'disconnected', errorMsg: 'Host left the room' });
+      break;
+    case 'kicked':
+      set({ status: 'error', errorMsg: 'You were removed from the room', roomCode: null, players: [] });
       break;
   }
 }
 
-function connect(): Promise<void> {
+function ensureConnected(): Promise<void> {
   return new Promise((resolve) => {
     if (ws?.readyState === WebSocket.OPEN) { resolve(); return; }
-    useMultiplayerStore.setState({ status: 'connecting' });
+    useMPStore.setState({ status: 'connecting' });
     ws = new WebSocket(getWsUrl());
     ws.onopen = () => resolve();
-    ws.onmessage = (e) => handleMessage(e.data);
+    ws.onmessage = (e) => onMsg(e.data);
     ws.onclose = () => {
       ws = null;
-      const s = useMultiplayerStore.getState();
-      if (s.status !== 'idle' && s.status !== 'kicked' && s.status !== 'not_found') {
-        useMultiplayerStore.setState({ status: 'disconnected' });
+      const s = useMPStore.getState();
+      if (s.status !== 'idle' && s.status !== 'error') {
+        useMPStore.setState({ status: 'disconnected', errorMsg: 'Connection lost' });
       }
     };
     ws.onerror = () => ws?.close();
@@ -128,38 +129,27 @@ function connect(): Promise<void> {
 
 // ── Public actions ──────────────────────────────────────────────
 
-export async function createRoom(playerName: string) {
-  await connect();
-  send({ type: 'create_room', playerName });
+export async function mpCreateRoom(hostName: string, categories: string[], timerSeconds: number, numTeams: number, wordPools: Record<string, string[]>) {
+  await ensureConnected();
+  send({ type: 'create_room', hostName, categories, timerSeconds, numTeams, wordPools });
 }
 
-export async function joinRoom(roomCode: string, playerName: string) {
-  await connect();
+export async function mpJoinRoom(roomCode: string, playerName: string) {
+  useMPStore.setState({ errorMsg: null });
+  await ensureConnected();
   send({ type: 'join_room', roomCode, playerName });
 }
 
-export function assignTeams(teams: { name: string; color: string; playerIds: string[] }[]) {
-  send({ type: 'assign_teams', teams });
+export function mpAutoAssign() { send({ type: 'auto_assign' }); }
+export function mpAssignTeams(teams: { name: string; color: string; playerIds: string[] }[]) { send({ type: 'assign_teams', teams }); }
+export function mpStartGame() { send({ type: 'start_game' }); }
+export function mpCorrect() { send({ type: 'correct' }); }
+export function mpSkip() { send({ type: 'skip' }); }
+export function mpKick(playerId: string) { send({ type: 'kick_player', playerId }); }
+
+export function mpDisconnect() {
+  ws?.close(); ws = null;
+  useMPStore.setState({ status: 'idle', errorMsg: null, roomCode: null, playerId: null, players: [], isHost: false, teams: [], gameState: null });
 }
 
-export function autoAssignTeams(numTeams: number) {
-  send({ type: 'auto_assign', numTeams });
-}
-
-export function startGame(wordPools: Record<string, string[]>, categories: string[], timerSeconds: number) {
-  send({ type: 'start_game', wordPools, categories, timerSeconds });
-}
-
-export function sendCorrect() { send({ type: 'correct' }); }
-export function sendSkip() { send({ type: 'skip' }); }
-export function sendEndTurn() { send({ type: 'end_turn' }); }
-export function kickPlayer(playerId: string) { send({ type: 'kick_player', playerId }); }
-
-export function disconnectMultiplayer() {
-  ws?.close();
-  ws = null;
-  useMultiplayerStore.setState({
-    status: 'idle', roomCode: null, playerId: null,
-    players: [], isHost: false, gameState: null, teams: [],
-  });
-}
+export function mpSetStatus(status: Store['status']) { useMPStore.setState({ status }); }
