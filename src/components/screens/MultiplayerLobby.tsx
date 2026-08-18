@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
-import { useMPStore, mpCreateRoom, mpJoinRoom, mpAutoAssign, mpAssignTeams, mpStartGame, mpKick, mpDisconnect } from '../../store/multiplayerStore';
+import { useMPStore, mpCreateRoom, mpJoinRoom, mpAssignTeams, mpStartGame, mpKick, mpDisconnect } from '../../store/multiplayerStore';
 import { Button } from '../ui/Button';
 import { allCards } from '../../data/cards';
 import { BASE_CATEGORIES, TEAM_COLORS } from '../../types';
@@ -61,12 +61,6 @@ export function MultiplayerLobby() {
     mpJoinRoom(codeInput.trim(), name.trim());
   };
 
-  const startGame = () => {
-    const allAssigned = teams.length >= 2 && teams.every(t => t.playerIds.length > 0)
-      && players.every(p => teams.some(t => t.playerIds.includes(p.id)));
-    if (!allAssigned) return;
-    mpStartGame();
-  };
 
   // ════════════════════════════════════════════════════════════
   // ERROR / DISCONNECTED
@@ -199,135 +193,22 @@ export function MultiplayerLobby() {
   }
 
   // ════════════════════════════════════════════════════════════
-  // HOST TEAM ASSIGNMENT
+  // HOST TEAM ASSIGNMENT — pure local state, no server round-trips
   // ════════════════════════════════════════════════════════════
   if (showTeams) {
-    // Build local assignment state: player ID → team index (or -1 for unassigned)
-    // Derive from the teams array synced from server
-    const getAssignment = (pid: string): number => {
-      for (let i = 0; i < teams.length; i++) {
-        if (teams[i].playerIds.includes(pid)) return i;
-      }
-      return -1;
-    };
-
-    const unassignedCount = players.filter(p => getAssignment(p.id) === -1).length;
-    const allAssigned = teams.length >= 2 && unassignedCount === 0 && teams.every(t => t.playerIds.length > 0);
-
-    // Assign a single player to a team via dropdown
-    const assignPlayer = (playerId: string, teamIdx: number) => {
-      const updated = teams.map((t, i) => ({
-        name: t.name,
-        color: t.color,
-        playerIds: i === teamIdx
-          ? [...t.playerIds.filter(id => id !== playerId), playerId]
-          : t.playerIds.filter(id => id !== playerId),
-      }));
-      mpAssignTeams(updated);
-    };
-
-    // Initialize empty teams on server if not yet created
-    const initTeams = () => {
-      if (teams.length === 0) {
-        const empty = Array.from({ length: numTeams }, (_, i) => ({
-          name: `Team ${i + 1}`,
-          color: TEAM_COLORS[i % TEAM_COLORS.length].bg,
-          playerIds: [] as string[],
-        }));
-        mpAssignTeams(empty);
-      }
-    };
-
-    // Auto-init on first render of this screen
-    if (teams.length === 0) {
-      // Use setTimeout to avoid updating during render
-      setTimeout(initTeams, 0);
-    }
-
     return (
-      <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}
-        className="min-h-[100dvh] flex flex-col p-6 w-full" style={{ maxWidth: 800, margin: '0 auto' }}>
-
-        <div className="pt-8 pb-6">
-          <button onClick={() => setShowTeams(false)}
-            className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mb-6 inline-flex items-center gap-1 cursor-pointer font-game-ui"
-            style={{ minHeight: 48 }}>← Back to Lobby</button>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-game-title">Create Teams</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1 font-game-ui">
-            {unassignedCount > 0 ? `${unassignedCount} player${unassignedCount !== 1 ? 's' : ''} unassigned` : 'All players assigned ✓'}
-          </p>
-        </div>
-
-        {/* Auto-assign button */}
-        <div className="flex flex-wrap gap-2 mb-6 items-center">
-          <Button variant="secondary" size="md" onClick={() => mpAutoAssign()} style={{ minHeight: 52 }}>
-            🔀 Auto-Assign
-          </Button>
-        </div>
-
-        {/* Player assignment list — dropdown per player */}
-        <div className="space-y-3 mb-6">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400 font-game-ui">Assign each player to a team:</p>
-          {players.map(p => {
-            const currentTeam = getAssignment(p.id);
-            const isUnassigned = currentTeam === -1;
-            return (
-              <div key={p.id}
-                className={`flex items-center gap-3 p-3 rounded-xl ${isUnassigned ? 'border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/20' : 'bg-gray-50 dark:bg-gray-800/50'}`}
-                style={{ minHeight: 52 }}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0" style={{ backgroundColor: p.color }}>
-                  {p.name.slice(0, 2).toUpperCase()}
-                </div>
-                <span className="flex-1 font-semibold text-gray-900 dark:text-white font-game-ui" style={{ fontSize: '1rem' }}>
-                  {p.name}{p.id === myId ? ' (You)' : ''}{p.isHost ? ' 👑' : ''}
-                </span>
-                <select
-                  value={currentTeam}
-                  onChange={e => assignPlayer(p.id, Number(e.target.value))}
-                  className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-game-ui"
-                  style={{ minHeight: 48, fontSize: 16, minWidth: 120 }}>
-                  <option value={-1}>No team</option>
-                  {teams.map((t, i) => (
-                    <option key={t.id} value={i}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Team preview cards */}
-        {teams.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 mb-6">
-            {teams.map((team, idx) => {
-              const tc = TEAM_COLORS[idx % TEAM_COLORS.length];
-              const tp = team.playerIds.map(pid => players.find(p => p.id === pid)).filter(Boolean);
-              return (
-                <div key={team.id} className="rounded-xl p-3 border-2" style={{ borderColor: tc.mid, backgroundColor: tc.light + '20' }}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tc.bg }} />
-                    <span className="text-sm font-bold text-gray-900 dark:text-white font-game-ui">{team.name}</span>
-                    <span className="text-xs text-gray-400 font-game-ui">({tp.length})</span>
-                  </div>
-                  {tp.length > 0
-                    ? <p className="text-xs text-gray-600 dark:text-gray-300 font-game-ui">{tp.map(p => p!.name).join(', ')}</p>
-                    : <p className="text-xs text-gray-400 italic font-game-ui">Empty</p>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Start Game */}
-        <div className="py-4">
-          <Button size="xl" onClick={startGame} disabled={!allAssigned} className="w-full" style={{ maxWidth: 400, margin: '0 auto', display: 'block' }}>
-            ▶ Start Game
-          </Button>
-          {!allAssigned && teams.length > 0 && (
-            <p className="text-xs text-gray-400 text-center mt-2 font-game-ui">Assign all players to teams first</p>
-          )}
-        </div>
-      </motion.div>
+      <TeamAssignment
+        players={players}
+        numTeams={numTeams}
+        myId={myId}
+        onBack={() => setShowTeams(false)}
+        onStartGame={(builtTeams) => {
+          // Send teams to server and start the game
+          mpAssignTeams(builtTeams.map(t => ({ name: t.name, color: t.color, playerIds: t.players.map((p: any) => p.id) })));
+          // Small delay to let server process teams, then start
+          setTimeout(() => mpStartGame(), 200);
+        }}
+      />
     );
   }
 
@@ -411,6 +292,139 @@ function PlayerList({ players, myId, isHost, onKick }: { players: any[]; myId: s
           </motion.div>
         ))}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Team Assignment — pure local state, no server round-trips ───
+
+const TA_COLORS = ['#C0392B', '#2471A3', '#1E8449', '#D4A017', '#7D3C98', '#117A65'];
+
+function TeamAssignment({ players, numTeams, myId, onBack, onStartGame }: {
+  players: any[];
+  numTeams: number;
+  myId: string | null;
+  onBack: () => void;
+  onStartGame: (teams: { id: string; name: string; color: string; players: any[] }[]) => void;
+}) {
+  const [assignments, setAssignments] = useState<Record<string, number | undefined>>({});
+
+  const buildTeams = () => {
+    const teams = Array.from({ length: numTeams }, (_, i) => ({
+      id: `team${i + 1}`,
+      name: `Team ${i + 1}`,
+      color: TA_COLORS[i % TA_COLORS.length],
+      players: [] as any[],
+    }));
+    players.forEach(p => {
+      const idx = assignments[p.id];
+      if (idx !== undefined) teams[idx].players.push(p);
+    });
+    return teams;
+  };
+
+  const autoAssign = () => {
+    const shuffled = [...players].sort(() => Math.random() - 0.5);
+    const next: Record<string, number> = {};
+    shuffled.forEach((p, i) => { next[p.id] = i % numTeams; });
+    setAssignments(next);
+  };
+
+  const allAssigned = players.every(p => assignments[p.id] !== undefined);
+  const unassignedCount = players.filter(p => assignments[p.id] === undefined).length;
+
+  const handleStart = () => {
+    if (!allAssigned) return;
+    onStartGame(buildTeams());
+  };
+
+  return (
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: 20, fontFamily: 'Nunito, sans-serif' }}>
+      <button onClick={onBack}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: '#888', marginBottom: 16, minHeight: 48, display: 'flex', alignItems: 'center' }}>
+        ← Back to Lobby
+      </button>
+
+      <h2 style={{ textAlign: 'center', marginBottom: 8, fontSize: '1.5rem', fontWeight: 800 }} className="text-gray-900 dark:text-white">
+        Assign Teams
+      </h2>
+
+      {unassignedCount > 0 && (
+        <p style={{ textAlign: 'center', color: '#e74c3c', marginBottom: 16, fontWeight: 'bold' }}>
+          {unassignedCount} player{unassignedCount > 1 ? 's' : ''} not yet assigned
+        </p>
+      )}
+      {allAssigned && (
+        <p style={{ textAlign: 'center', color: '#1E8449', marginBottom: 16, fontWeight: 'bold' }}>
+          All players assigned ✓
+        </p>
+      )}
+
+      {/* Player assignment list */}
+      <div style={{ marginBottom: 24 }}>
+        {players.map(p => (
+          <div key={p.id} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 16px', marginBottom: 10, borderRadius: 10, minHeight: 52,
+            background: assignments[p.id] !== undefined ? TA_COLORS[assignments[p.id]!] + '22' : '#fff3cd',
+            border: `2px solid ${assignments[p.id] !== undefined ? TA_COLORS[assignments[p.id]!] : '#e74c3c'}`,
+          }}>
+            <span style={{ fontWeight: 'bold', fontSize: '1rem' }} className="text-gray-900 dark:text-white">
+              {p.name}{p.id === myId ? ' (You)' : ''}{p.isHost ? ' 👑' : ''}
+            </span>
+            <select
+              value={assignments[p.id] ?? ''}
+              onChange={e => {
+                const val = e.target.value;
+                setAssignments(prev => ({ ...prev, [p.id]: val === '' ? undefined : Number(val) }));
+              }}
+              style={{ padding: '8px 12px', borderRadius: 8, border: '2px solid #ccc', fontSize: '1rem', fontFamily: 'Nunito, sans-serif', minWidth: 120, minHeight: 48, cursor: 'pointer' }}
+            >
+              <option value="">— Pick team —</option>
+              {Array.from({ length: numTeams }, (_, i) => (
+                <option key={i} value={i}>Team {i + 1}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+
+      {/* Team preview */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
+        {Array.from({ length: numTeams }, (_, i) => {
+          const tp = players.filter(p => assignments[p.id] === i);
+          return (
+            <div key={i} style={{
+              flex: '1 1 140px', background: TA_COLORS[i] + '33', border: `3px solid ${TA_COLORS[i]}`,
+              borderRadius: 12, padding: 12, minWidth: 140,
+            }}>
+              <div style={{ fontWeight: 'bold', color: TA_COLORS[i], marginBottom: 8, fontSize: '1rem' }}>Team {i + 1}</div>
+              {tp.length === 0
+                ? <div style={{ color: '#999', fontSize: '0.85rem' }}>Nobody yet</div>
+                : tp.map(p => <div key={p.id} style={{ fontSize: '0.9rem', padding: '2px 0' }} className="text-gray-800 dark:text-gray-200">{p.name}</div>)
+              }
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Buttons */}
+      <div style={{ display: 'flex', gap: 12, flexDirection: 'column' }}>
+        <button onClick={autoAssign} style={{
+          padding: 14, borderRadius: 10, border: '2px solid #2471A3', background: 'white',
+          color: '#2471A3', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', minHeight: 52,
+        }}>
+          🔀 Auto-Assign Teams
+        </button>
+        <button onClick={handleStart} disabled={!allAssigned} style={{
+          padding: 16, borderRadius: 10, border: 'none',
+          background: allAssigned ? '#1E8449' : '#ccc', color: 'white',
+          fontSize: '1.1rem', fontWeight: 'bold', cursor: allAssigned ? 'pointer' : 'not-allowed',
+          fontFamily: 'Nunito, sans-serif', minHeight: 52,
+        }}>
+          {allAssigned ? '▶ Start Game' : `Assign all players first (${unassignedCount} left)`}
+        </button>
+      </div>
     </div>
   );
 }
