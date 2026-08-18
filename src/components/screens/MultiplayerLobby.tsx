@@ -203,9 +203,7 @@ export function MultiplayerLobby() {
         myId={myId}
         onBack={() => setShowTeams(false)}
         onStartGame={(builtTeams) => {
-          // Send teams to server and start the game
-          mpAssignTeams(builtTeams.map(t => ({ name: t.name, color: t.color, playerIds: t.players.map((p: any) => p.id) })));
-          // Small delay to let server process teams, then start
+          mpAssignTeams(builtTeams.map(t => ({ name: t.name, color: t.color, piece: t.piece, playerIds: t.players.map((p: any) => p.id) })));
           setTimeout(() => mpStartGame(), 200);
         }}
       />
@@ -296,31 +294,30 @@ function PlayerList({ players, myId, isHost, onKick }: { players: any[]; myId: s
   );
 }
 
-// ── Team Assignment — pure local state, no server round-trips ───
+// ── Team Assignment — local state with name + piece selection ────
 
 const TA_COLORS = ['#C0392B', '#2471A3', '#1E8449', '#D4A017', '#7D3C98', '#117A65'];
+const PIECE_OPTIONS = ['🚀', '🦁', '👑', '🎩', '⚡', '🔥', '🌟', '💎', '🐉', '🎯', '🦊', '🏆'];
 
 function TeamAssignment({ players, numTeams, myId, onBack, onStartGame }: {
   players: any[];
   numTeams: number;
   myId: string | null;
   onBack: () => void;
-  onStartGame: (teams: { id: string; name: string; color: string; players: any[] }[]) => void;
+  onStartGame: (teams: { id: string; name: string; color: string; piece: string; players: any[] }[]) => void;
 }) {
   const [assignments, setAssignments] = useState<Record<string, number | undefined>>({});
+  const [teamNames, setTeamNames] = useState<string[]>(Array.from({ length: numTeams }, (_, i) => `Team ${i + 1}`));
+  const [teamPieces, setTeamPieces] = useState<string[]>(PIECE_OPTIONS.slice(0, numTeams));
 
   const buildTeams = () => {
-    const teams = Array.from({ length: numTeams }, (_, i) => ({
+    return Array.from({ length: numTeams }, (_, i) => ({
       id: `team${i + 1}`,
-      name: `Team ${i + 1}`,
+      name: teamNames[i] || `Team ${i + 1}`,
       color: TA_COLORS[i % TA_COLORS.length],
-      players: [] as any[],
+      piece: teamPieces[i] || PIECE_OPTIONS[i],
+      players: players.filter(p => assignments[p.id] === i),
     }));
-    players.forEach(p => {
-      const idx = assignments[p.id];
-      if (idx !== undefined) teams[idx].players.push(p);
-    });
-    return teams;
   };
 
   const autoAssign = () => {
@@ -330,101 +327,141 @@ function TeamAssignment({ players, numTeams, myId, onBack, onStartGame }: {
     setAssignments(next);
   };
 
+  const setPiece = (teamIdx: number, piece: string) => {
+    setTeamPieces(prev => { const next = [...prev]; next[teamIdx] = piece; return next; });
+  };
+
+  const usedPieces = new Set(teamPieces);
   const allAssigned = players.every(p => assignments[p.id] !== undefined);
   const unassignedCount = players.filter(p => assignments[p.id] === undefined).length;
 
-  const handleStart = () => {
-    if (!allAssigned) return;
-    onStartGame(buildTeams());
-  };
-
   return (
-    <div style={{ maxWidth: 600, margin: '0 auto', padding: 20, fontFamily: 'Nunito, sans-serif' }}>
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'Nunito, sans-serif' }}>
       <button onClick={onBack}
         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: '#888', marginBottom: 16, minHeight: 48, display: 'flex', alignItems: 'center' }}>
         ← Back to Lobby
       </button>
 
-      <h2 style={{ textAlign: 'center', marginBottom: 8, fontSize: '1.5rem', fontWeight: 800 }} className="text-gray-900 dark:text-white">
-        Assign Teams
+      <h2 style={{ textAlign: 'center', marginBottom: 4, fontSize: '1.5rem', fontWeight: 800 }} className="text-gray-900 dark:text-white">
+        Set Up Teams
       </h2>
+      <p style={{ textAlign: 'center', marginBottom: 20, fontWeight: 'bold', color: allAssigned ? '#1E8449' : '#e74c3c' }}>
+        {allAssigned ? 'All players assigned ✓' : `${unassignedCount} player${unassignedCount > 1 ? 's' : ''} not yet assigned`}
+      </p>
 
-      {unassignedCount > 0 && (
-        <p style={{ textAlign: 'center', color: '#e74c3c', marginBottom: 16, fontWeight: 'bold' }}>
-          {unassignedCount} player{unassignedCount > 1 ? 's' : ''} not yet assigned
-        </p>
-      )}
-      {allAssigned && (
-        <p style={{ textAlign: 'center', color: '#1E8449', marginBottom: 16, fontWeight: 'bold' }}>
-          All players assigned ✓
-        </p>
-      )}
+      {/* Auto-assign */}
+      <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <button onClick={autoAssign} style={{
+          padding: '12px 24px', borderRadius: 10, border: '2px solid #2471A3', background: 'white',
+          color: '#2471A3', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', minHeight: 48,
+        }}>🔀 Auto-Assign</button>
+      </div>
 
-      {/* Player assignment list */}
+      {/* Team cards with name + piece + player dropdowns */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+        {Array.from({ length: numTeams }, (_, i) => {
+          const color = TA_COLORS[i % TA_COLORS.length];
+          const tp = players.filter(p => assignments[p.id] === i);
+          return (
+            <div key={i} style={{ border: `3px solid ${color}`, borderRadius: 14, padding: 16, background: color + '12' }}>
+              {/* Team name input */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: '1.5rem' }}>{teamPieces[i]}</span>
+                <input
+                  type="text" value={teamNames[i]}
+                  onChange={e => setTeamNames(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                  placeholder="Enter team name"
+                  maxLength={20}
+                  style={{ flex: 1, fontWeight: 800, fontSize: '1.1rem', color, background: 'transparent', border: 'none', outline: 'none', fontFamily: 'Nunito, sans-serif' }}
+                />
+              </div>
+
+              {/* Piece selector */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: 4 }}>Team piece:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {PIECE_OPTIONS.map(piece => {
+                    const isSelected = teamPieces[i] === piece;
+                    const isTaken = usedPieces.has(piece) && !isSelected;
+                    return (
+                      <button key={piece} onClick={() => !isTaken && setPiece(i, piece)}
+                        disabled={isTaken}
+                        style={{
+                          width: 36, height: 36, borderRadius: 8, fontSize: '1.1rem', cursor: isTaken ? 'not-allowed' : 'pointer',
+                          border: isSelected ? `3px solid ${color}` : '2px solid transparent',
+                          background: isSelected ? 'white' : 'transparent', opacity: isTaken ? 0.2 : 1,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>{piece}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Players in this team */}
+              <div style={{ marginBottom: 8 }}>
+                {tp.length === 0
+                  ? <div style={{ color: '#999', fontSize: '0.85rem', fontStyle: 'italic' }}>No players yet</div>
+                  : tp.map(p => (
+                    <div key={p.id} style={{ fontSize: '0.9rem', padding: '3px 0' }} className="text-gray-800 dark:text-gray-200">
+                      {p.name}{p.id === myId ? ' (You)' : ''}{p.isHost ? ' 👑' : ''}
+                    </div>
+                  ))}
+              </div>
+
+              {/* Quick-add unassigned players */}
+              {players.filter(p => assignments[p.id] === undefined).length > 0 && (
+                <div style={{ borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: 4 }}>Add player:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {players.filter(p => assignments[p.id] === undefined).map(p => (
+                      <button key={p.id}
+                        onClick={() => setAssignments(prev => ({ ...prev, [p.id]: i }))}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #ccc', background: 'white', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}
+                      >+ {p.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Player list with dropdowns */}
       <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: '0.85rem', color: '#888', marginBottom: 8, fontWeight: 600 }}>All players:</div>
         {players.map(p => (
           <div key={p.id} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '12px 16px', marginBottom: 10, borderRadius: 10, minHeight: 52,
-            background: assignments[p.id] !== undefined ? TA_COLORS[assignments[p.id]!] + '22' : '#fff3cd',
+            padding: '10px 14px', marginBottom: 8, borderRadius: 10, minHeight: 48,
+            background: assignments[p.id] !== undefined ? TA_COLORS[assignments[p.id]!] + '18' : '#fff3cd',
             border: `2px solid ${assignments[p.id] !== undefined ? TA_COLORS[assignments[p.id]!] : '#e74c3c'}`,
           }}>
-            <span style={{ fontWeight: 'bold', fontSize: '1rem' }} className="text-gray-900 dark:text-white">
+            <span style={{ fontWeight: 'bold', fontSize: '0.95rem' }} className="text-gray-900 dark:text-white">
               {p.name}{p.id === myId ? ' (You)' : ''}{p.isHost ? ' 👑' : ''}
             </span>
-            <select
-              value={assignments[p.id] ?? ''}
-              onChange={e => {
-                const val = e.target.value;
-                setAssignments(prev => ({ ...prev, [p.id]: val === '' ? undefined : Number(val) }));
-              }}
-              style={{ padding: '8px 12px', borderRadius: 8, border: '2px solid #ccc', fontSize: '1rem', fontFamily: 'Nunito, sans-serif', minWidth: 120, minHeight: 48, cursor: 'pointer' }}
-            >
-              <option value="">— Pick team —</option>
-              {Array.from({ length: numTeams }, (_, i) => (
-                <option key={i} value={i}>Team {i + 1}</option>
+            <select value={assignments[p.id] ?? ''} onChange={e => {
+              const v = e.target.value;
+              setAssignments(prev => ({ ...prev, [p.id]: v === '' ? undefined : Number(v) }));
+            }} style={{ padding: '6px 10px', borderRadius: 8, border: '2px solid #ccc', fontSize: '0.95rem', fontFamily: 'Nunito, sans-serif', minWidth: 110, minHeight: 44, cursor: 'pointer' }}>
+              <option value="">— Pick —</option>
+              {Array.from({ length: numTeams }, (_, idx) => (
+                <option key={idx} value={idx}>{teamPieces[idx]} {teamNames[idx]}</option>
               ))}
             </select>
           </div>
         ))}
       </div>
 
-      {/* Team preview */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
-        {Array.from({ length: numTeams }, (_, i) => {
-          const tp = players.filter(p => assignments[p.id] === i);
-          return (
-            <div key={i} style={{
-              flex: '1 1 140px', background: TA_COLORS[i] + '33', border: `3px solid ${TA_COLORS[i]}`,
-              borderRadius: 12, padding: 12, minWidth: 140,
-            }}>
-              <div style={{ fontWeight: 'bold', color: TA_COLORS[i], marginBottom: 8, fontSize: '1rem' }}>Team {i + 1}</div>
-              {tp.length === 0
-                ? <div style={{ color: '#999', fontSize: '0.85rem' }}>Nobody yet</div>
-                : tp.map(p => <div key={p.id} style={{ fontSize: '0.9rem', padding: '2px 0' }} className="text-gray-800 dark:text-gray-200">{p.name}</div>)
-              }
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Buttons */}
-      <div style={{ display: 'flex', gap: 12, flexDirection: 'column' }}>
-        <button onClick={autoAssign} style={{
-          padding: 14, borderRadius: 10, border: '2px solid #2471A3', background: 'white',
-          color: '#2471A3', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', minHeight: 52,
-        }}>
-          🔀 Auto-Assign Teams
-        </button>
-        <button onClick={handleStart} disabled={!allAssigned} style={{
-          padding: 16, borderRadius: 10, border: 'none',
-          background: allAssigned ? '#1E8449' : '#ccc', color: 'white',
-          fontSize: '1.1rem', fontWeight: 'bold', cursor: allAssigned ? 'pointer' : 'not-allowed',
-          fontFamily: 'Nunito, sans-serif', minHeight: 52,
-        }}>
-          {allAssigned ? '▶ Start Game' : `Assign all players first (${unassignedCount} left)`}
-        </button>
-      </div>
+      {/* Start */}
+      <button onClick={() => { if (allAssigned) onStartGame(buildTeams()); }} disabled={!allAssigned} style={{
+        width: '100%', padding: 16, borderRadius: 12, border: 'none',
+        background: allAssigned ? '#1E8449' : '#ccc', color: 'white',
+        fontSize: '1.1rem', fontWeight: 'bold', cursor: allAssigned ? 'pointer' : 'not-allowed',
+        fontFamily: 'Nunito, sans-serif', minHeight: 56,
+      }}>
+        {allAssigned ? '▶ Start Game' : `Assign all players first (${unassignedCount} left)`}
+      </button>
     </div>
   );
 }

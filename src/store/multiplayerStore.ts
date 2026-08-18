@@ -8,7 +8,7 @@ function getWsUrl(): string {
 }
 
 export interface MPPlayer { id: string; name: string; isHost: boolean; color: string }
-export interface MPTeam { id: string; name: string; color: string; score: number; playerIds: string[]; currentExplainerIndex: number }
+export interface MPTeam { id: string; name: string; color: string; piece: string; score: number; playerIds: string[]; currentExplainerIndex: number }
 
 export interface MPGameState {
   phase: 'playing' | 'turnSummary' | 'gameOver';
@@ -20,6 +20,7 @@ export interface MPGameState {
   currentWord: string | null;
   timerSeconds: number;
   turnStartedAt: number;
+  timeRemaining: number;
   turnScore: number;
   round: number;
   lastTurnTeamName?: string;
@@ -168,7 +169,7 @@ export async function mpJoinRoom(code: string, name: string) {
 }
 
 export function mpAutoAssign() { send({ type: 'auto_assign' }); }
-export function mpAssignTeams(teams: { name: string; color: string; playerIds: string[] }[]) { send({ type: 'assign_teams', teams }); }
+export function mpAssignTeams(teams: { name: string; color: string; piece?: string; playerIds: string[] }[]) { send({ type: 'assign_teams', teams }); }
 export function mpStartGame() { send({ type: 'start_game' }); }
 export function mpCorrect() { send({ type: 'correct' }); }
 export function mpSkip() { send({ type: 'skip' }); }

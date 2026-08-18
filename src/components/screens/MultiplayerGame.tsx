@@ -28,19 +28,21 @@ export function MultiplayerGame() {
   const meta = CATEGORY_META[cat] || CATEGORY_META.RANDOM;
   const mates = curTeam ? gs?.players?.filter((p: any) => curTeam.playerIds.includes(p.id) && p.id !== gs?.currentExplainerId) || [] : [];
 
-  // Timer sync
+  // Timer — use server's timeRemaining, fallback to local calc
   useEffect(() => {
     if (!gs || gs.phase !== 'playing') return;
     const tick = () => {
-      const r = Math.max(0, Math.ceil(gs.timerSeconds - (Date.now() - gs.turnStartedAt) / 1000));
+      const r = gs.timeRemaining !== undefined
+        ? gs.timeRemaining
+        : Math.max(0, Math.ceil(gs.timerSeconds - (Date.now() - gs.turnStartedAt) / 1000));
       setRemaining(r);
       if (r <= 10 && r > 0 && !countdownRef.current) { countdownRef.current = true; initAudio(); startCountdown(r); }
       if (r <= 0 && !timerFiredRef.current) { timerFiredRef.current = true; stopCountdown(); playTimeUp(); }
     };
     tick();
-    const iv = setInterval(tick, 250);
+    const iv = setInterval(tick, 500);
     return () => clearInterval(iv);
-  }, [gs?.turnStartedAt, gs?.timerSeconds, gs?.phase]);
+  }, [gs?.timeRemaining, gs?.turnStartedAt, gs?.timerSeconds, gs?.phase]);
 
   // Reset on turn change
   useEffect(() => {
@@ -83,7 +85,7 @@ export function MultiplayerGame() {
     return (
       <Centered>
         <p className="text-6xl">🏆</p>
-        <h1 className="font-game-title" style={{ color: sorted[0]?.color, fontSize: 'clamp(1.8rem, 6vw, 2.5rem)' }}>{sorted[0]?.name} Wins!</h1>
+        <h1 className="font-game-title" style={{ color: sorted[0]?.color, fontSize: 'clamp(1.8rem, 6vw, 2.5rem)' }}>{sorted[0]?.piece} {sorted[0]?.name} Wins!</h1>
         <div className="w-full space-y-3" style={{ maxWidth: 400 }}>
           {sorted.map((t: MPTeam, i: number) => (
             <motion.div key={t.id} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.15 }}
@@ -127,7 +129,8 @@ export function MultiplayerGame() {
 
         <div className="p-4 text-center space-y-1">
           <span className="px-3 py-1 rounded-full bg-emerald-500 text-white text-xs font-bold font-game-ui">🎯 YOUR TURN, {explainer?.name}!</span>
-          <p className="text-sm text-gray-500 font-game-ui">Explain to: <span className="font-bold" style={{ color: curTeam?.color }}>{mates.map((p: any) => p.name).join(' & ')}</span></p>
+          <p className="text-sm text-gray-500 font-game-ui">Explaining to: <span className="font-bold" style={{ color: curTeam?.color }}>{curTeam?.piece} {curTeam?.name}</span></p>
+          <p className="text-xs text-gray-400 font-game-ui">({mates.map((p: any) => p.name).join(', ')})</p>
         </div>
 
         <div className="text-center"><CatBadge meta={meta} /></div>
@@ -171,10 +174,11 @@ export function MultiplayerGame() {
       className={`min-h-[100dvh] flex flex-col items-center p-5 gap-4 transition-colors duration-300 ${crit ? 'bg-red-50 dark:bg-red-950/20' : urg ? 'bg-amber-50 dark:bg-amber-950/20' : 'bg-gray-50 dark:bg-gray-900'}`}
       style={{ maxWidth: 480, margin: '0 auto' }}>
       <div className="text-center space-y-1 pt-2">
-        <span className="px-4 py-1.5 rounded-full text-sm font-bold text-white font-game-ui" style={{ backgroundColor: curTeam?.color }}>
-          {curTeam?.name}'s Turn
+        <p className="text-sm text-gray-500 font-game-ui">🎙️ {explainer?.name} is explaining</p>
+        <span className="px-4 py-1.5 rounded-full text-sm font-bold text-white font-game-ui inline-flex items-center gap-1.5" style={{ backgroundColor: curTeam?.color }}>
+          {curTeam?.piece} {curTeam?.name}'s Turn
         </span>
-        <p className="text-base text-gray-900 dark:text-white font-game-ui font-bold mt-2">{explainer?.name} is explaining</p>
+        <p className="text-xs text-gray-400 font-game-ui mt-1">Explaining to: {mates.map((p: any) => p.name).join(', ')}</p>
       </div>
 
       <CatBadge meta={meta} />
@@ -216,8 +220,8 @@ function Scoreboard({ teams, activeTeamId }: { teams: MPTeam[]; players: any[]; 
     <div className="w-full space-y-2" style={{ maxWidth: 400 }}>
       {teams.map((t: MPTeam) => (
         <div key={t.id} className={`flex items-center gap-3 px-4 py-2 rounded-xl ${t.id === activeTeamId ? 'bg-white dark:bg-gray-700 ring-2' : 'bg-gray-100 dark:bg-gray-800/50'}`}
-          style={t.id === activeTeamId ? { ringColor: t.color, '--tw-ring-color': t.color } as any : {}}>
-          <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+          style={t.id === activeTeamId ? { '--tw-ring-color': t.color } as any : {}}>
+          <span className="text-lg shrink-0">{t.piece || '🚀'}</span>
           <span className="flex-1 font-semibold text-gray-900 dark:text-white font-game-ui truncate" style={{ fontSize: '1rem' }}>{t.name}</span>
           <span className="font-black tabular-nums text-gray-900 dark:text-white">{t.score} pts</span>
         </div>

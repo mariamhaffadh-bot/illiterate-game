@@ -48,9 +48,11 @@ function pickWord(pool, used) {
 /** Send filtered game state to each player — word ONLY to explainer */
 function broadcastState(room, type = 'game_update') {
   const gs = room.gameState; if (!gs) return;
+  const elapsed = Math.floor((Date.now() - gs.turnStartedAt) / 1000);
+  const timeRemaining = Math.max(0, gs.timerSeconds - elapsed);
   for (const p of room.players) {
     if (!p.ws || p.ws.readyState !== 1) continue;
-    const s = { ...gs };
+    const s = { ...gs, timeRemaining };
     delete s.wordPools;
     delete s.categories;
     delete s.usedWords;
@@ -67,6 +69,7 @@ function broadcastAll(room, msg) {
 function advanceTurn(room) {
   const gs = room.gameState; if (!gs) return;
   clearTimeout(room.turnTimer);
+  clearInterval(room.tickTimer);
 
   const curTeam = gs.teams[gs.currentTeamIndex];
   const lastTeamName = curTeam.name;
@@ -131,10 +134,16 @@ function advanceTurn(room) {
     gs.turnStartedAt = Date.now();
     gs.phase = 'playing';
 
+    gs.timeRemaining = gs.timerSeconds;
     broadcastState(room);
 
-    // Server-managed turn timer
+    // Server-managed turn timer + tick
     room.turnTimer = setTimeout(() => advanceTurn(room), gs.timerSeconds * 1000);
+    room.tickTimer = setInterval(() => {
+      if (!room.gameState || room.gameState.phase !== 'playing') { clearInterval(room.tickTimer); return; }
+      const el = Math.floor((Date.now() - room.gameState.turnStartedAt) / 1000);
+      room.gameState.timeRemaining = Math.max(0, room.gameState.timerSeconds - el);
+    }, 1000);
   }, 4000);
 }
 
@@ -346,7 +355,7 @@ wss.on('connection', (ws, req) => {
         const room = rooms.get(roomCode); if (!room) return;
         room.teams = msg.teams.map((t, i) => ({
           id: `team_${i}`, name: t.name || `Team ${i + 1}`, color: t.color || TEAM_COLORS[i % TEAM_COLORS.length],
-          score: 0, playerIds: t.playerIds || [], currentExplainerIndex: 0,
+          piece: t.piece || '🚀', score: 0, playerIds: t.playerIds || [], currentExplainerIndex: 0,
         }));
         broadcastAll(room, { type: 'teams_set', teams: room.teams });
         break;
@@ -399,10 +408,16 @@ wss.on('connection', (ws, req) => {
           categories: cats, wordPools: cfg.wordPools,
         };
 
+        room.gameState.timeRemaining = cfg.timerSeconds;
         broadcastState(room, 'game_started');
 
-        // Server-managed turn timer
+        // Server-managed turn timer + tick every second
         room.turnTimer = setTimeout(() => advanceTurn(room), cfg.timerSeconds * 1000);
+        room.tickTimer = setInterval(() => {
+          if (!room.gameState || room.gameState.phase !== 'playing') { clearInterval(room.tickTimer); return; }
+          const elapsed = Math.floor((Date.now() - room.gameState.turnStartedAt) / 1000);
+          room.gameState.timeRemaining = Math.max(0, room.gameState.timerSeconds - elapsed);
+        }, 1000);
         break;
       }
 
