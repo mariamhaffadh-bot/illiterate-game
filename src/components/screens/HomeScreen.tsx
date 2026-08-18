@@ -126,7 +126,7 @@ export function HomeScreen() {
         className="text-center space-y-2 mt-4"
       >
         <p className="text-sm text-gray-400 dark:text-gray-500">
-          3+ players · Pass the device · Race around the board
+          2+ players · Pass the device · Race around the board
         </p>
         <button
           onClick={() => { clearWordBank(); alert('Word history cleared! All words are fresh now.'); }}
