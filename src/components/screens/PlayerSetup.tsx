@@ -20,7 +20,7 @@ export function PlayerSetup() {
     setName('');
   };
 
-  const canContinue = players.length >= 3;
+  const canContinue = players.length >= 2;
 
   return (
     <motion.div
@@ -34,7 +34,7 @@ export function PlayerSetup() {
           ← Back
         </button>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Add Players</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">You need at least 3 players to start</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">You need at least 2 players to start</p>
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -59,9 +59,9 @@ export function PlayerSetup() {
             ))}
           </AnimatePresence>
         </div>
-        {players.length > 0 && players.length < 3 && (
+        {players.length > 0 && players.length < 2 && (
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-amber-500 mt-4">
-            Add {3 - players.length} more player{3 - players.length !== 1 ? 's' : ''} to continue
+            Add {2 - players.length} more player{2 - players.length !== 1 ? 's' : ''} to continue
           </motion.p>
         )}
       </div>
