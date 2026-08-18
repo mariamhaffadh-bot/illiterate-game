@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 import { Button } from '../ui/Button';
 import { storage } from '../../utils';
+import { clearAll as clearWordBank } from '../../utils/wordBank';
 import { QRCodeSVG } from 'qrcode.react';
 
 export function HomeScreen() {
@@ -122,9 +123,17 @@ export function HomeScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        className="text-sm text-gray-400 dark:text-gray-500 mt-4"
+        className="text-center space-y-2 mt-4"
       >
-        3+ players · Pass the device · Race around the board
+        <p className="text-sm text-gray-400 dark:text-gray-500">
+          3+ players · Pass the device · Race around the board
+        </p>
+        <button
+          onClick={() => { clearWordBank(); alert('Word history cleared! All words are fresh now.'); }}
+          className="text-xs text-gray-400 dark:text-gray-500 hover:text-violet-500 dark:hover:text-violet-400 cursor-pointer transition-colors underline underline-offset-4"
+        >
+          Reset Word History
+        </button>
       </motion.div>
     </motion.div>
   );

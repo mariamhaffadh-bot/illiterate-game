@@ -39,7 +39,9 @@ function pubPlayers(room) {
 }
 
 function pickWord(pool, used) {
-  const avail = pool.filter(w => !used.includes(w));
+  // Normalize both sides for comparison
+  const usedNorm = new Set(used.map(normalizeWord));
+  const avail = pool.filter(w => !usedNorm.has(normalizeWord(w)));
   return avail.length ? avail[Math.floor(Math.random() * avail.length)] : null;
 }
 
@@ -167,38 +169,74 @@ app.get('/api/rooms/:code', (req, res) => {
 
 // ── Word Generation ─────────────────────────────────────────────
 
-const WORD_GEN_PROMPT = `You are a word bank for a party guessing game. Generate words for this category.
+const WORD_GEN_PROMPT = `You are a word generator for a party guessing game.
+
 CATEGORY: "{{CATEGORY}}"
-═══════════════════════════════════════
-BANNED LIST — NEVER OUTPUT THESE:
-{{USED_WORDS_LIST}}
-═══════════════════════════════════════
-Generate exactly {{COUNT}} words/phrases that belong to "{{CATEGORY}}".
+
+BANNED WORDS — YOU MUST NOT OUTPUT ANY OF THESE:
+{{BANNED_LIST}}
+
 RULES:
-- Never repeat banned words in any form. No synonyms of banned words.
-- Each word must be unique. Unambiguously belong to the category.
-- Mix difficulty: 40% easy, 40% medium, 20% hard. Prefer specific over generic.
-OUTPUT: Return ONLY a raw JSON array. No markdown.
-["word one", "word two", "word three"]`;
+1. Return ONLY a valid JSON array of strings. No markdown. No explanation. No backticks.
+2. Generate exactly {{COUNT}} items.
+3. Every item must clearly and unambiguously belong to "{{CATEGORY}}".
+4. BEFORE including any word, check it against the BANNED WORDS list above. If it matches in any form — singular/plural, with or without "the/a/an", different capitalisation, common abbreviation — DO NOT include it. Pick another.
+5. Every word in your output must also be unique from every OTHER word in your output.
+6. Do not output synonyms or close variants of banned words. If "automobile" is banned, "car", "auto", and "vehicle" are also banned.
+7. Go specific and deep — if obvious words are banned, explore less obvious members of the category rather than recycling.
+8. Mix difficulty: 40% easy, 40% medium, 20% hard.
+
+SELF-CHECK BEFORE RESPONDING:
+- Is every item genuinely in "{{CATEGORY}}"? ✓
+- Is every item absent from the BANNED list? ✓
+- Is every item unique within your output? ✓
+- Is the total exactly {{COUNT}} items? ✓
+Only output after all four pass.
+
+Output format: ["word one", "word two", "word three"]`;
+
+function normalizeWord(w) { return w.toLowerCase().replace(/^(the|a|an) /i, '').replace(/[^a-z0-9]/g, '').trim(); }
 
 app.post('/api/generate-words', async (req, res) => {
   const { category, usedWords = [], count = 60 } = req.body;
   if (!category) return res.status(400).json({ error: 'category is required' });
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(501).json({ error: 'no_api_key' });
-  const banned = usedWords.length > 0 ? usedWords.map(w => `- ${w}`).join('\n') : '(none)';
-  const prompt = WORD_GEN_PROMPT.replace(/\{\{CATEGORY\}\}/g, category).replace('{{USED_WORDS_LIST}}', banned).replace(/\{\{COUNT\}\}/g, String(count));
+
+  // Format ban list with numbering for clarity
+  const banList = usedWords.length > 0
+    ? usedWords.map((w, i) => `${i + 1}. ${w}`).join('\n')
+    : '(none yet)';
+
+  // Request 50% more to absorb filtering
+  const requestCount = Math.ceil(count * 1.5);
+  const prompt = WORD_GEN_PROMPT.replace(/\{\{CATEGORY\}\}/g, category).replace('{{BANNED_LIST}}', banList).replace(/\{\{COUNT\}\}/g, String(requestCount));
+
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2048, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 4096, messages: [{ role: 'user', content: prompt }] }),
     });
     if (!r.ok) return res.status(502).json({ error: 'llm_error' });
     const d = await r.json(); const text = d.content?.[0]?.text ?? '[]';
-    let words;
-    try { words = JSON.parse(text); if (!Array.isArray(words)) throw 0; words = words.filter(w => typeof w === 'string' && w.trim()); }
-    catch { const m = text.match(/\[[\s\S]*\]/); if (m) words = JSON.parse(m[0]).filter(w => typeof w === 'string'); else return res.status(502).json({ error: 'parse_error' }); }
-    res.json({ words });
+    let candidates;
+    try { candidates = JSON.parse(text); if (!Array.isArray(candidates)) throw 0; candidates = candidates.filter(w => typeof w === 'string' && w.trim()); }
+    catch { const m = text.match(/\[[\s\S]*\]/); if (m) candidates = JSON.parse(m[0]).filter(w => typeof w === 'string'); else return res.status(502).json({ error: 'parse_error' }); }
+
+    // Server-side dedup — never trust the model alone
+    const usedSet = new Set(usedWords.map(normalizeWord));
+    const seen = new Set(usedSet);
+    const fresh = [];
+    for (const word of candidates) {
+      const key = normalizeWord(word);
+      if (key.length > 0 && !seen.has(key)) {
+        seen.add(key);
+        fresh.push(word);
+      }
+      if (fresh.length >= count) break;
+    }
+
+    res.json({ words: fresh });
   } catch (err) { console.error('Word gen error:', err); res.status(500).json({ error: 'server_error' }); }
 });
 
