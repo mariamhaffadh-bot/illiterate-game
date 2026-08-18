@@ -149,8 +149,10 @@ function connectWs(): Promise<void> {
 export async function mpCreateRoom(hostName: string, categories: string[], timer: number, numTeams: number, wordPools: Record<string, string[]>) {
   try {
     await connectWs();
+    console.log('[MP] Sending create_room, wordPools size:', JSON.stringify(wordPools).length, 'bytes');
     send({ type: 'create_room', hostName, categories, timerSeconds: timer, numTeams, wordPools });
-  } catch {
+  } catch (err) {
+    console.error('[MP] Failed to connect:', err);
     useMPStore.setState({ status: 'error', errorMsg: 'Could not connect to server. Please try again.' });
   }
 }

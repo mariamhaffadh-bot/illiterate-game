@@ -151,6 +151,11 @@ setInterval(() => {
 
 app.use(express.json());
 
+// Health check — verify server is running latest code
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', version: '2026-08-18', rooms: rooms.size, sessions: sessions.size, uptime: Math.floor(process.uptime()) });
+});
+
 app.post('/api/games', (_req, res) => {
   const id = generateGameId();
   sessions.set(id, { id, createdAt: Date.now(), state: null, hostWs: null, clients: new Set() });
@@ -244,7 +249,8 @@ app.post('/api/generate-words', async (req, res) => {
 // WEBSOCKET
 // ═══════════════════════════════════════════════════════════════
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  console.log('[WS] New connection from:', req.headers.origin || 'unknown');
   let gameId = null, role = null, roomCode = null, playerId = null;
 
   ws.on('message', (raw) => {
@@ -284,15 +290,16 @@ wss.on('connection', (ws) => {
         const code = genRoomCode();
         const id = crypto.randomUUID();
         playerId = id; roomCode = code; role = 'room_host';
+        console.log(`[ROOM] Creating room ${code} for ${msg.hostName}`);
         const room = {
           code, hostId: id, status: 'lobby',
           players: [{ id, name: msg.hostName || 'Host', isHost: true, ws, color: PLAYER_COLORS[0] }],
           teams: [], gameState: null, turnTimer: null, createdAt: Date.now(),
-          // Store config from host
           config: { categories: msg.categories || [], timerSeconds: msg.timerSeconds || 30, numTeams: msg.numTeams || 2, wordPools: msg.wordPools || {} },
         };
         rooms.set(code, room);
         ws.send(JSON.stringify({ type: 'room_created', roomCode: code, playerId: id, players: pubPlayers(room) }));
+        console.log(`[ROOM] Room ${code} created. Total rooms: ${rooms.size}`);
         break;
       }
 
