@@ -72,9 +72,12 @@ export function MultiplayerLobby() {
   // ERROR / DISCONNECTED
   // ════════════════════════════════════════════════════════════
   if (status === 'disconnected') {
+    const isReconnecting = error === 'Reconnecting...';
     return (
-      <Screen><div className="text-5xl">😵</div>
-        <p className="text-lg text-gray-500 font-game-ui">{error || 'Connection lost'}</p>
+      <Screen>
+        <div className="text-5xl">{isReconnecting ? '🔄' : '😵'}</div>
+        <p className="text-lg text-gray-500 font-game-ui">{isReconnecting ? 'Reconnecting...' : (error || 'Connection lost')}</p>
+        {isReconnecting && <p className="text-sm text-gray-400 font-game-ui animate-pulse">Trying to reconnect automatically</p>}
         <Button onClick={goBack}>Back to Menu</Button>
       </Screen>
     );
@@ -361,10 +364,16 @@ export function MultiplayerLobby() {
 // ── Shared components ───────────────────────────────────────────
 
 function Screen({ children }: { children: React.ReactNode }) {
+  const ws = useMPStore((s) => s.wsStatus);
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="min-h-[100dvh] flex flex-col items-center justify-center p-6 gap-5"
       style={{ maxWidth: 800, margin: '0 auto' }}>
+      {/* Connection indicator */}
+      <div className="fixed top-4 right-4 flex items-center gap-1.5 text-xs font-game-ui z-10" style={{ opacity: 0.6 }}>
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ws === 'open' ? '#22C55E' : ws === 'connecting' ? '#EAB308' : '#EF4444' }} />
+        <span className="text-gray-500 dark:text-gray-400">{ws === 'open' ? 'Connected' : ws === 'connecting' ? 'Connecting...' : 'Offline'}</span>
+      </div>
       {children}
     </motion.div>
   );

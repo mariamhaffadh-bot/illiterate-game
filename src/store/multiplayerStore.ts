@@ -29,6 +29,7 @@ export interface MPGameState {
 }
 
 interface Store {
+  wsStatus: 'closed' | 'connecting' | 'open';
   status: 'idle' | 'connecting' | 'lobby' | 'playing' | 'disconnected' | 'error';
   errorMsg: string | null;
   roomCode: string | null;
@@ -40,13 +41,33 @@ interface Store {
 }
 
 export const useMPStore = create<Store>(() => ({
+  wsStatus: 'closed',
   status: 'idle', errorMsg: null, roomCode: null, playerId: null,
   players: [], isHost: false, teams: [], gameState: null,
 }));
 
-let ws: WebSocket | null = null;
+// ── Module-level WebSocket with auto-reconnect ──────────────────
 
-function send(msg: object) { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+let ws: WebSocket | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let intentionalClose = false;
+let pendingMessages: string[] = [];
+
+function send(msg: object) {
+  const payload = JSON.stringify(msg);
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(payload);
+  } else {
+    // Queue message to send after reconnect
+    pendingMessages.push(payload);
+  }
+}
+
+function flushPending() {
+  while (pendingMessages.length > 0 && ws?.readyState === WebSocket.OPEN) {
+    ws.send(pendingMessages.shift()!);
+  }
+}
 
 function onMsg(data: string) {
   let msg: any;
@@ -66,28 +87,99 @@ function onMsg(data: string) {
   }
 }
 
-function ensureWs(): Promise<void> {
-  return new Promise((resolve) => {
+function connectWs(): Promise<void> {
+  return new Promise((resolve, reject) => {
     if (ws?.readyState === WebSocket.OPEN) { resolve(); return; }
-    useMPStore.setState({ status: 'connecting' });
-    ws = new WebSocket(getWsUrl());
-    ws.onopen = () => resolve();
-    ws.onmessage = (e) => onMsg(e.data);
-    ws.onclose = () => { ws = null; const s = useMPStore.getState(); if (s.status !== 'idle' && s.status !== 'error') useMPStore.setState({ status: 'disconnected', errorMsg: 'Connection lost' }); };
-    ws.onerror = () => ws?.close();
+
+    // Clean up any existing connection
+    if (ws) { try { ws.close(); } catch {} }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+    intentionalClose = false;
+    const url = getWsUrl();
+    console.log('[WS] Connecting to:', url);
+    useMPStore.setState({ wsStatus: 'connecting', status: 'connecting' });
+
+    const socket = new WebSocket(url);
+    ws = socket;
+
+    socket.onopen = () => {
+      console.log('[WS] Connected');
+      useMPStore.setState({ wsStatus: 'open' });
+      flushPending();
+      resolve();
+    };
+
+    socket.onmessage = (e) => onMsg(e.data);
+
+    socket.onclose = (event) => {
+      console.log('[WS] Closed. Code:', event.code, 'Clean:', event.wasClean);
+      ws = null;
+      useMPStore.setState({ wsStatus: 'closed' });
+
+      if (intentionalClose) return;
+
+      const s = useMPStore.getState();
+      if (s.status === 'idle' || s.status === 'error') return;
+
+      // Auto-reconnect
+      console.log('[WS] Will reconnect in 2s...');
+      useMPStore.setState({ status: 'disconnected', errorMsg: 'Reconnecting...' });
+      reconnectTimer = setTimeout(() => {
+        const current = useMPStore.getState();
+        if (current.status === 'idle' || current.status === 'error') return;
+        console.log('[WS] Reconnecting...');
+        connectWs().catch(() => {});
+      }, 2000);
+    };
+
+    socket.onerror = (err) => {
+      console.error('[WS] Error:', err);
+      // Don't reject here — onclose will fire and handle reconnect
+      // Only reject if we haven't opened yet
+      if (socket.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket connection failed'));
+      }
+    };
   });
 }
 
+// ── Public actions ──────────────────────────────────────────────
+
 export async function mpCreateRoom(hostName: string, categories: string[], timer: number, numTeams: number, wordPools: Record<string, string[]>) {
-  await ensureWs(); send({ type: 'create_room', hostName, categories, timerSeconds: timer, numTeams, wordPools });
+  try {
+    await connectWs();
+    send({ type: 'create_room', hostName, categories, timerSeconds: timer, numTeams, wordPools });
+  } catch {
+    useMPStore.setState({ status: 'error', errorMsg: 'Could not connect to server. Please try again.' });
+  }
 }
+
 export async function mpJoinRoom(code: string, name: string) {
-  useMPStore.setState({ errorMsg: null }); await ensureWs(); send({ type: 'join_room', roomCode: code, playerName: name });
+  useMPStore.setState({ errorMsg: null });
+  try {
+    await connectWs();
+    send({ type: 'join_room', roomCode: code, playerName: name });
+  } catch {
+    useMPStore.setState({ status: 'error', errorMsg: 'Could not connect to server. Please try again.' });
+  }
 }
+
 export function mpAutoAssign() { send({ type: 'auto_assign' }); }
 export function mpAssignTeams(teams: { name: string; color: string; playerIds: string[] }[]) { send({ type: 'assign_teams', teams }); }
 export function mpStartGame() { send({ type: 'start_game' }); }
 export function mpCorrect() { send({ type: 'correct' }); }
 export function mpSkip() { send({ type: 'skip' }); }
 export function mpKick(id: string) { send({ type: 'kick_player', playerId: id }); }
-export function mpDisconnect() { ws?.close(); ws = null; useMPStore.setState({ status: 'idle', errorMsg: null, roomCode: null, playerId: null, players: [], isHost: false, teams: [], gameState: null }); }
+
+export function mpDisconnect() {
+  intentionalClose = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  pendingMessages = [];
+  ws?.close();
+  ws = null;
+  useMPStore.setState({
+    wsStatus: 'closed', status: 'idle', errorMsg: null, roomCode: null,
+    playerId: null, players: [], isHost: false, teams: [], gameState: null,
+  });
+}
